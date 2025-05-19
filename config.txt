@@ -1,0 +1,4 @@
+CPI.M: 10
+CPI.AR: 5
+CPI.DIV: 10
+end

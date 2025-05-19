@@ -1,0 +1,7 @@
+add r1,r2,r3
+li r1,2
+mul r2,r3,r3
+add r1,r1,r1
+add r1,r2,r1
+mul r3,r1,r1
+halt
