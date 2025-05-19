@@ -1,7 +1,3 @@
-// tomasulo_simulator.c
-// Arquivo único contendo toda a implementação do algoritmo de Tomasulo
-// Cada seção abaixo corresponde a um .h ou .c original, marcada pelo comentário
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
