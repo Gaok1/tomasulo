@@ -1,0 +1,6 @@
+CPI.MUL: 1
+CPI.AR: 1
+CPI.DIV: 1
+CPI.LOAD: 1
+CPI.STORE: 1
+end

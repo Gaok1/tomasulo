@@ -1,5 +1,6 @@
 li r1,5
 mul r1,r1,r1
+li r3,0
 store r1,0(r3)
 add r1,r1,r1
 store r1,1(r3)
