@@ -1,110 +1,206 @@
-# Tomasulo Simulator – Documentação
+# Tomasulo Simulator
 
-> **Versão:** 1.0
-> **Arquivo‑fonte:** `tomasulo_simulator.c` (monolítico)
-> **Propósito:** Demonstrar, em C puro, o funcionamento do algoritmo de *Tomasulo* para execução fora‑de‑ordem e resolução dinâmica de dependências em um pipeline simples.
-
----
-
-## 1. Visão Geral
-
-O simulador implementa um pipeline de 4 estágios ‑ *Issue*, *Execute*, *Write‑back* e *Commit* – inspirado no paper original de Robert Tomasulo (1967). Ele oferece:
-
-* **Reorder Buffer (ROB)** para manter a ordem de compromisso (precisão das exceções).
-* **Estação de Reserva (RS)** que gerencia dependências e emite operações quando os operandos estão prontos.
-* **Unidades Funcionais (UF)** com latências configuráveis (Add/Sub, Mul, Div).
-* **Register File** com renomeação implícita via ponteiros para o ROB (campo `qi`).
-* Arquivo de **configuração** (`config.txt`) que permite mudar a latência de cada UF sem recompilar.
-* Arquivo de **instruções** (`instructions.txt`) em assembly resumido.
-
-O código é dividido por comentários‑sentinela que indicam a origem de cada bloco (`/* trecho do codigo XYZ.h */`). Isso facilita split futuro em múltiplos arquivos.
+> **Versão atual:** 1.0  |  **Autor:** João (PUC‑Minas)  |  **Linguagem:** C (ISO C11)
+>
+> Implementa, em código 100 % **C puro**, o algoritmo de **Tomasulo** para execução fora‑de‑ordem (*out‑of‑order*) com *register renaming*, *reservation stations* e *reorder buffer* (ROB).
 
 ---
 
-## 2. Estrutura de Dados Principal
+## Índice
 
-| Componente         | Responsabilidade                                                         | APIs Principais                                              |
-| ------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| `Config`           | Guarda CPI (latência) de cada operação e expõe `get_latency()`           | `pub_start_config()`                                         |
-| `InstructionQueue` | Fila de despacho em ordem de programa                                    | `dispatch()`                                                 |
-| `RegisterFile`     | Registradores arquiteturais + estado de dependência (`qi`)               | `get()`, `set_rob_entry()`, `commit_value()`                 |
-| `ReserverStation`  | Buffer que mantém micro‑operações até que **Qj/Qk** sejam resolvidos     | `add_instruction()`, `get_ready_all()`, `listen_broadcast()` |
-| `ReorderBuffer`    | Garante *commit* in‑order; armazena valor pronto + estado                | `insert()`, `try_commit()`                                   |
-| `FunctionalUnit`   | Executa instruções; cada UF é multiplexada por um pequeno buffer interno | `instruction_buffer_available()`, `push()`, `broadcast()`    |
-
----
-
-## 3. Fluxo por Ciclo de Clock
-
-1. **Issue**
-
-   * Enquanto houver espaço na RS **e** no ROB, despacha‐se próxima instrução do `InstructionQueue`.
-   * Dependências são marcadas (`Qj`, `Qk`). Para imediatos (`LI`), o operando é gravado direto em `Vj` e a RS fica livre.
-2. **Execute**
-
-   * Varre RS buscando linhas com `Qj = Qk = 0`.
-   * Se a UF correspondente tiver *slot* livre, o `row` é movido para ela; o ROB passa a estado `ROB_EXECUTE`.
-3. **Write‑back**
-
-   * Quando `remaining == 0` na UF, ocorre *broadcast* (valor + `ROB.entry`).
-   * RS e ROB escutam; quem dependia desse resultado atualiza‑se.
-4. **Commit**
-
-   * Se a head do ROB estiver em `ROB_WRITE_RESULT`, grava valor no `RegisterFile` (caso tenha destino) e avança o ponteiro.
-
-Loop encerra quando `HALT` foi emitido **e** não resta trabalho em ROB, RS ou UFs.
+1. [Motivação](#motivação)
+2. [Visão Geral da Arquitetura](#visãogeral-da-arquitetura)
+3. [Estrutura de Pastas & Arquivos](#estrutura-de-pastas--arquivos)
+4. [Compilação](#compilação)
+5. [Execução](#execução)
+6. [Configuração (latências)](#configuração-latências)
+7. [Formato das Instruções](#formato-das-instruções)
+8. [Principais Estruturas de Dados](#principais-estruturas-de-dados)
+9. [Ciclo de Clock](#ciclo-de-clock)
+10. [Log de Saída](#log-de-saída)
+11. [Limitações Conhecidas](#limitações-conhecidas)
+12. [Roadmap de Melhorias](#roadmap-de-melhorias)
+13. [Licença](#licença)
 
 ---
 
-## 4. Formato dos Arquivos de Entrada
+## Motivação
 
-### 4.1 `instructions.txt`
+O pipeline superescalar contemporâneo retira paralelismo ao nível de instrução (ILP). Entretanto, **dependências (RAW, WAR, WAW)** e latências variáveis das UFs exigem lógica extra de reordenação. O algoritmo de **Tomasulo** (IBM 360/91, 1967) resolve essas questões via:
 
-```
-# Exemplo
-li   r1,10
-li   r2,20
-add  r3,r1,r2
-mul  r4,r3,r3
-halt
+* **Renomeação de registradores** – elimina dependências *falsas* (WAR/WAW).
+* **Estação de Reserva (RS)** – mantém instruções e operandos prontos.
+* **Common Data Bus (CDB)** – difunde resultados imediatamente.
+* **Reorder Buffer (ROB)** – garante *precise exceptions* e *commit* em ordem.
+
+Este simulador didático demonstra esses conceitos numa implementação enxuta e comentada.
+
+---
+
+## Visão Geral da Arquitetura
+
+```text
+┌────────────┐   Issue   ┌──────────────┐ Execute ┌───────────────┐ WB ┌─────────┐ Commit
+│ InstrQueue │ ────────►│ Reserve St.  │────────►│ Func. Units   │───►│   ROB   │──────► RegFile
+└────────────┘           └──────────────┘         └───────────────┘    └─────────┘
+                            ▲  ▲  ▲  ▲                ││││               ▲       
+                            │  │  │  └────── Load/Store││                │       
+                            │  │  └────────── DIV      │                 │       
+                            │  └───────────── MUL      ▼                 │       
+                            └──────────────── ADD/SUB/LI ────────────────┘       
 ```
 
-* **Registradores:** `r0`..`r31` (32 regs).
-* **Instruções:** `add`, `sub`, `mul`, `div`, `li`, `halt`.
-* **Sintaxe:** vírgulas obrigatórias;
+* **UF Power**: `ADD/SUB/LI=2`, `MUL=1`, `DIV=1`, `LOAD/STORE=2` (configurável).
+* **RS Tamanho**: ver tabela abaixo.
 
-### 4.2 `config.txt`
+| UF / RS           | Linhas RS |
+| ----------------- | --------- |
+| Aritmética (ADD…) | 3         |
+| Multiplicação     | 2         |
+| Divisão           | 2         |
+| Load/Store        | 4         |
 
+---
+
+## Estrutura de Pastas & Arquivos
+
+| Arquivo                        | Função                                          |
+| ------------------------------ | ----------------------------------------------- |
+| `tomasulo.c`                   | Código fonte monolítico (≈ 2 000 linhas)        |
+| `instructions.txt`             | Assembly didático a ser executado               |
+| `config.txt`                   | Latência (*CPI*) por operação                   |
+| `049239-tomasulo.pdf`          | Artigo base (UNICAMP 2005) – referência teórica |
+| `06-pipeline-superescalar.pdf` | Slides sobre superescalaridade (PUC‑Minas)      |
+
+> **Dica 💡**: nada impede dividir `tomasulo.c` em módulos (`rob.c`, `rs.c`, etc.). Os comentários‑sentinela `/* trecho do codigo XYZ.h */` já apontam cortes naturais.
+
+---
+
+## Execução
+
+1. Ajuste `instructions.txt` e opcionalmente `config.txt`.
+2. Execute:
+
+```bash
+./tomasulo_sim              # Linux/macOS
+# ou
+tomasulo_sim.exe            # Windows
 ```
-# Latências em ciclos por instrução
-CPI.M   : 10   # multiplicação
-CPI.DIV : 20   # divisão
-CPI.AR  : 5    # operações aritméticas (add/sub)
+
+O simulador imprime, ciclo a ciclo, os eventos de *Issue*, *Execute*, *Write‑back* e *Commit*.
+
+---
+
+## Configuração (latências)
+
+Exemplo de `config.txt`:
+
+```text
+# Latências em ciclos por instrução (CPI)
+CPI.M : 10   # multiplicação
+CPI.DIV: 20  # divisão
+CPI.AR : 5   # add/sub
+# CPI.LOAD / CPI.STORE podem ser adicionados
 end
 ```
 
-O parser carrega valores até encontrar `end`. Ausência do arquivo aciona valores padrão (`CPI_DEFAULT = 5`).
+Ausência do arquivo ⇒ valores **default** (todos `1`, exceto LOAD/STORE=2).
 
 ---
 
-## 5. Compilação & Execução
+## Formato das Instruções
 
-1. Certifique‑se de ter `instructions.txt` (e opcionalmente `config.txt`) no mesmo diretório.
-2. Execute:
+```asm
+; Registradores: r0..r31 | Comentários iniciam com '#'
+li   r1,10             ; imediato
+add  r2,r1,r3          ; r2 = r1 + r3
+mul  r4,r2,r2
+load r5,16(r0)         ; r5 = MEM[r0+16]
+store r5,32(r0)        ; MEM[r0+32] = r5
+halt                   ; encerra emissão
+```
 
-   ```bash
-   ./tomasulo_sim         # ou tomasulo_sim.exe
-   ```
-3. A saída trará logs de cada estágio, ex.:
+* **Ops suportadas:** `add`, `sub`, `mul`, `div`, `li`, `load`, `store`, `halt`.
+* **Sintaxe:** vírgulas obrigatórias; *offset(base)* para memória.
 
-   ```
-   >>> CLOCK 0 <<<
-   [Issue] Emissão de instrucao
-   [Decode] LI   rd=r1 imm=10
-   [Issue] RS.tag = 0, ROB.entry = 1
-   ...
-   [UF] [Broadcast] Finalizou ADD | ROB=3 | Resultado=30
-   [Commit] Tentativa de commit
-   [Commit] Registrador 3 atualizado com valor 30
-   ```
+---
 
+## Principais Estruturas de Dados
+
+| Estrutura (arquivo) | Descrição rápida                         | Campos chave                   |
+| ------------------- | ---------------------------------------- | ------------------------------ |
+| `InstructionQueue`  | Fila FIFO de *issue*                     | `dispatchHead`, `peek()`       |
+| `ReserveStationRow` | Entrada de RS                            | `op`, `vj/vk`, `qj/qk`, `dest` |
+| `ReserverStation`   | Conjunto de linhas da UF                 | `size`, `busyLen`              |
+| `ReorderBufferRow`  | Entrada do ROB                           | `state`, `value`, `rs_tag`     |
+| `FunctionalUnit`    | Núcleo de execução + buffers             | arrays de `UFTask`             |
+| `RegisterFile`      | Registradores arquiteturais + renomeação | `value`, `qi`                  |
+
+A maior parte da lógica se encontra em três funções:
+
+1. **`pub_reserve_station_add_instruction()`** – faz *decode* + renomeação.
+2. **`uf_tick()`** – avança cada Unidade Funcional, gera *broadcast*.
+3. **`pub_reorder_buffer_try_commit()`** – aplica o *commit* in‑order.
+
+---
+
+## Ciclo de Clock
+
+Cada iteração do `while` principal equivale a **1 tick**:
+
+1. **Issue** – enquanto houver espaço em RS & ROB, despacha próxima instrução.
+2. **Execute** – varre RS; se operandos prontos & UF livre, inicia execução.
+3. **Write‑back** – ao término, resultado é difundido no *Common Data Bus*.
+4. **Commit** – head do ROB escreve no Register File (ou memória p/ `store`).
+
+Encerramento quando:
+
+* `halt` emitido **e**
+* ROB vazio **e** RS vazias **e** todas as UFs ociosas.
+
+---
+
+## Log de Saída
+
+Trecho típico (latências `ADD=1`, `MUL=2`):
+
+```text
+>>> CLOCK 0 <<<
+[Issue] Emissao de instrucao de OP = ADD
+[Decode] ADD  rd=r1 rs=r2 rt=r3
+[Issue] RS.tag = 0, ROB.entry = 1
+...
+[UF] Executando op=ADD | vj=10.00 vk=20.00 | restante=0
+[UF] [Broadcast] Finalizou ADD | ROB=1 | Resultado=30.00
+[WriteBack] ROB.entry = 1 | result => 30.00
+[Commit] Registrador 1 atualizado com valor 30.00
+```
+
+Use esse log para depurar dependências ou *deadlocks* (ver [Limitações](#limitações-conhecidas)).
+
+---
+
+## Limitações Conhecidas
+
+* **ROB Entry ≠ ordem física** – fila circular pode quebrar a ordem se não gerenciada.
+* **CDB único** – contende broadcast (modelo original); não simula múltiplos barramentos.
+* **Sem previsão de desvio** – não há *branch speculation*.
+* **Sem exceções/flush** – exceções precisas seriam tratadas no estado `ROB_EXCEPTION` (futuro).
+* **Código monolítico** – didático, porém difícil de testar; modularização sugerida.
+
+---
+
+## Roadmap de Melhorias
+
+* [ ] Refatorar em módulos (`rob.c`, `uf.c`, `parser.c`).
+* [ ] Implementar *branch* e *speculative execution*.
+* [ ] Suporte a múltiplos CDBs.
+* [ ] Exportar traces para o Visual Tomasulo.
+* [ ] Testes unitários com **CMocka**.
+* [ ] Interface TUI utilizando **ncurses**.
+
+---
+
+## Licença
+
+Código disponibilizado sob a licença **MIT**. Consulte o arquivo `LICENSE` para detalhes.

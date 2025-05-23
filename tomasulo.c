@@ -1,7 +1,4 @@
-<<<<<<< HEAD
-// tomasulo_simulator.c
-=======
->>>>>>> 15cfe77a193cd5a76ec2338e455c01b3dc709433
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1262,9 +1259,9 @@ void print_reorderbuffer(ReorderBuffer *rob)
     printf("\n");
 }
 
-void printReserveStation(ReserverStation *rs)
+void printReserveStation(ReserverStation *rs, char * name)
 {
-    printf("[ReserveStation PRINT]  --------\n");
+    printf("[ReserveStation %s]  --------\n", name);
     for (int i = 0; i < rs->size; i++)
     {
         ReserveStationRow *row = &rs->rows[i];
@@ -1387,7 +1384,7 @@ int main()
         }
 
         // EXECUTE - Unidade MUL
-        // puts("[Execute] Executando MUL");
+        
         for (int i = 0; i < MUL_UF_POWER; i++)
         {
             UFTask *task = &functional_unit->mul_units[i];
@@ -1509,10 +1506,10 @@ int main()
         }
         print_reorderbuffer(reorder_buffer);
         printFunctionalUnit(functional_unit);
-        printReserveStation(functional_unit->arith_rs);
-        printReserveStation(functional_unit->mul_rs);
-        printReserveStation(functional_unit->div_rs);
-        printReserveStation(functional_unit->load_store_rs);
+        printReserveStation(functional_unit->arith_rs, "ARITH");
+        printReserveStation(functional_unit->mul_rs, "MUL");
+        printReserveStation(functional_unit->div_rs, "DIV");
+        printReserveStation(functional_unit->load_store_rs, "LOAD_STORE");
 
         puts("-----------------------------------------------------------------------------------------------------\n\n");
     }

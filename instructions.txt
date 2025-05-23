@@ -1,8 +1,6 @@
 li r1,5
-mul r1,r1,r1
-store r1,0(r3)
-add r1,r1,r1
-store r1,1(r3)
-load r4,0(r3)
-load r5,1(r3)
+li r2,10
+mul r1, r1,r2
+div r3,r4,r4
+mul r4,r3,r1
 halt
