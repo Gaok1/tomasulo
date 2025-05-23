@@ -1,8 +1,8 @@
 # Tomasulo Simulator
 
-> **Versão atual:** 1.0  |  **Autor:** João (PUC‑Minas)  |  **Linguagem:** C (ISO C11)
+> **Versão atual:** 1.0  |  **Autor:** Luis Phillip lemos martins, João mendes, Arthur oliveira, Fernanda rodrigues dias mariano, Gabriela lacerda muniz  |  **Linguagem:** C
 >
-> Implementa, em código 100 % **C puro**, o algoritmo de **Tomasulo** para execução fora‑de‑ordem (*out‑of‑order*) com *register renaming*, *reservation stations* e *reorder buffer* (ROB).
+> Algoritmo de **Tomasulo** para execução fora‑de‑ordem (*out‑of‑order*) com *register renaming*, *reservation stations* e *reorder buffer* (ROB).
 
 ---
 

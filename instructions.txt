@@ -1,6 +1,31 @@
-li r1,5
-li r2,10
-mul r1, r1,r2
-div r3,r4,r4
-mul r4,r3,r1
+# ---------- 1. Inicializações (sem dependências)
+li   r1,10
+li   r2,20
+li   r7,5
+li   r8,3
+
+# ---------- 2. RAW  (add produz r3, sub consome r3)
+add  r3,r1,r2
+sub  r4,r3,r1
+
+# ---------- 3. WAW (duas escritas em r5)
+mul  r5,r1,r2       # 1ª escrito em r5
+add  r5,r5,r2       # 2ª escrito em r5  (deve prevalecer)
+
+# ---------- 4. WAR (sub lê r8 antes de mul sobrescrever)
+sub  r6,r7,r8
+mul  r8,r1,r2
+
+# ---------- 5. Dependências de memória
+store r1,0(r20)     # STORE→LOAD  (RAW em memória)
+load  r9,0(r20)
+
+load  r10,4(r20)    # LOAD→STORE (WAR em memória)
+store r2,4(r20)
+
+store r3,8(r20)     # STORE→STORE (WAW em memória)
+store r4,8(r20)
+load  r11,8(r20)    # deve ler o valor da segunda STORE
+
+# ---------- fim
 halt

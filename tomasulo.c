@@ -444,7 +444,8 @@ static int parse_instruction_line(const char *line, Instruction *out)
     }
     else
     {
-        return 0; //! linha nao reconhecida
+        fprintf(stderr, "[Error] Instrucao invalida: %s\n", line);
+        return 0;
     }
 
     if (op_name)
@@ -1283,6 +1284,31 @@ void printFunctionalUnit(FunctionalUnit *uf)
             printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->arith_units[i].row.op), uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
         }
     }
+
+    for (int i = 0; i < MUL_UF_POWER; i++)
+    {
+        if (uf->mul_units[i].active)
+        {
+            printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->mul_units[i].row.op), uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
+        }
+    }
+
+    for (int i = 0; i < DIV_UF_POWER; i++)
+    {
+        if (uf->div_units[i].active)
+        {
+            printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->div_units[i].row.op), uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
+        }
+    }
+
+    for (int i = 0; i < LOAD_STORE_UF_POWER; i++)
+    {
+        if (uf->load_store_units[i].active)
+        {
+            printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->load_store_units[i].row.op), uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
+        }
+    }
+
     printf("\n");
 }
 
