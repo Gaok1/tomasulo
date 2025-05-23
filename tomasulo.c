@@ -100,10 +100,10 @@ typedef struct UFTask
 
 typedef struct FunctionalUnit
 {
-    UFTask arith_units[ARTH_UF_POWER];
-    UFTask mul_units[MUL_UF_POWER];
-    UFTask div_units[DIV_UF_POWER];
-    UFTask load_store_units[LOAD_STORE_UF_POWER];
+    UFTask *arith_units;
+    UFTask *mul_units;
+    UFTask *div_units;
+    UFTask *load_store_units;
 
     // Reserve stations de cada UF
     ReserverStation *arith_rs;
@@ -184,7 +184,7 @@ static inline void log_mssg(const char *msg)
 }
 
 #define CONFIG_FILE "config.txt"
-#define CPI_DEFAULT 1
+#define CPI_DEFAULT 2
 
 typedef enum Operation Operation;
 
@@ -194,8 +194,7 @@ typedef struct Config
     int add_cpi;
     int sub_cpi;
     int div_cpi;
-    int load_cpi;
-    int store_cpi;
+    int load_store_cpi;
     int (*get_latency)(Operation op);
 } Config;
 
@@ -226,11 +225,10 @@ static int config_get_latency(Operation op)
     case DIV:
         return global_config->div_cpi;
     case LI:
-        return 1;
+        return global_config->add_cpi; // LI é como um ADD
     case LOAD:
-        return global_config->load_cpi;
     case STORE:
-        return global_config->store_cpi;
+        return global_config->load_store_cpi;
     case HALT:
     default:
         return 0;
@@ -276,13 +274,14 @@ void pub_start_config()
         fprintf(stderr, "Erro em alocaçao para Config\n");
         exit(EXIT_FAILURE);
     }
+    // valores default
     cfg->mul_cpi = CPI_DEFAULT;
     cfg->add_cpi = CPI_DEFAULT;
     cfg->sub_cpi = CPI_DEFAULT;
     cfg->div_cpi = CPI_DEFAULT;
-    cfg->load_cpi = 2;  // exemplo
-    cfg->store_cpi = 2; // exemplo
+    cfg->load_store_cpi = CPI_DEFAULT;
     cfg->get_latency = config_get_latency;
+
     if (!fp)
     {
         printf("Aviso: nao encontrou %s, usando defaults\n", CONFIG_FILE);
@@ -294,26 +293,49 @@ void pub_start_config()
         {
             if (strncmp(line, "end", 3) == 0)
                 break;
+
             char key[16];
             int value;
             if (sscanf(line, " %15[^: ] : %d", key, &value) == 2)
             {
                 if (strcmp(key, "CPI.MUL") == 0)
+                {
                     cfg->mul_cpi = value;
+                }
                 else if (strcmp(key, "CPI.AR") == 0)
+                {
                     cfg->add_cpi = cfg->sub_cpi = value;
+                }
                 else if (strcmp(key, "CPI.DIV") == 0)
+                {
                     cfg->div_cpi = value;
-                else if (strcmp(key, "CPI.LOAD") == 0)
-                    cfg->load_cpi = value;
-                else if (strcmp(key, "CPI.STORE") == 0)
-                    cfg->store_cpi = value;
+                }
+                else if (strcmp(key, "CPI.LOAD_STORE") == 0)
+                {
+                    cfg->load_store_cpi = value;
+                }
                 else
-                    printf("Aviso: chave desconhecida '%s' no arquivo de configuracao\n", key);
+                {
+                    printf("[CONFIG] ignorando chave desconhecida: \"%s\"\n", key);
+                }
+            }
+            else
+            {
+                // opcional: mostre linhas que não bateram no sscanf
+                printf("[CONFIG] ignorando linha mal formatada: \"%s\"\n", line);
             }
         }
         fclose(fp);
+
+        // resumo final
+        printf("[CONFIG] resultados finais:\n");
+        printf("  MUL         = %d\n", cfg->mul_cpi);
+        printf("  ADD         = %d\n", cfg->add_cpi);
+        printf("  SUB         = %d\n", cfg->sub_cpi);
+        printf("  DIV         = %d\n", cfg->div_cpi);
+        printf("  LOAD_STORE  = %d\n", cfg->load_store_cpi);
     }
+
     global_config = cfg;
 }
 
@@ -1015,20 +1037,20 @@ static bool uf_instruction_buffer_available(FunctionalUnit *self, Operation op)
     case SUB:
     case LI:
         buf = self->arith_units;
-        cnt = ARTH_UF_POWER;
+        cnt = global_config->add_cpi;
         break;
     case MUL:
         buf = self->mul_units;
-        cnt = MUL_UF_POWER;
+        cnt = global_config->mul_cpi;
         break;
     case DIV:
         buf = self->div_units;
-        cnt = DIV_UF_POWER;
+        cnt = global_config->div_cpi;
         break;
     case LOAD:
     case STORE:
         buf = self->load_store_units;
-        cnt = LOAD_STORE_UF_POWER;
+        cnt = global_config->load_store_cpi;
         break;
     default:
         PANIC("Operação desconhecida para UF");
@@ -1053,20 +1075,20 @@ static bool uf_push(FunctionalUnit *self, ReserveStationRow row)
     case SUB:
     case LI:
         buf = self->arith_units;
-        cnt = ARTH_UF_POWER;
+        cnt = global_config->add_cpi;
         break;
     case MUL:
         buf = self->mul_units;
-        cnt = MUL_UF_POWER;
+        cnt = global_config->mul_cpi;
         break;
     case DIV:
         buf = self->div_units;
-        cnt = DIV_UF_POWER;
+        cnt = global_config->div_cpi;
         break;
     case LOAD:
     case STORE:
         buf = self->load_store_units;
-        cnt = LOAD_STORE_UF_POWER;
+        cnt = global_config->load_store_cpi;
         break;
     default:
         return false;
@@ -1122,7 +1144,8 @@ static Broadcast *uf_tick(FunctionalUnit *self)
     static Broadcast out;
 
     UFTask *groups[] = {self->arith_units, self->mul_units, self->div_units, self->load_store_units};
-    int limits[] = {ARTH_UF_POWER, MUL_UF_POWER, DIV_UF_POWER, LOAD_STORE_UF_POWER};
+    
+    int limits [] = {global_config->add_cpi, global_config->mul_cpi, global_config->div_cpi, global_config->load_store_cpi};
 
     for (int g = 0; g < 4; ++g) // para cada grupo de UFs (ARITH, MUL, DIV, LOAD_STORE)
     {
@@ -1198,10 +1221,17 @@ static FunctionalUnit *pub_create_functional_unit(void)
     if (!uf)
         PANIC("Erro ao alocar FunctionalUnit");
 
-    memset(uf->arith_units, 0, sizeof uf->arith_units);
-    memset(uf->mul_units, 0, sizeof uf->mul_units);
-    memset(uf->div_units, 0, sizeof uf->div_units);
-    memset(uf->load_store_units, 0, sizeof uf->load_store_units);
+    uf->arith_units = malloc(global_config->add_cpi * sizeof(UFTask));
+    uf->mul_units = malloc(global_config->mul_cpi * sizeof(UFTask));
+    uf->div_units = malloc(global_config->div_cpi * sizeof(UFTask));
+    uf->load_store_units = malloc(global_config->load_store_cpi * sizeof(UFTask));
+    // zerar
+    memset(uf->arith_units, 0, global_config->add_cpi * sizeof(UFTask));
+    memset(uf->mul_units, 0, global_config->mul_cpi * sizeof(UFTask));
+    memset(uf->div_units, 0, global_config->div_cpi * sizeof(UFTask));
+    memset(uf->load_store_units, 0, global_config->load_store_cpi * sizeof(UFTask));
+
+    // Cria UFs
 
     // Cria RS específicos para cada UF
     uf->arith_rs = pub_create_reserve_station(ARITH_RS_ROWS);
@@ -1238,7 +1268,7 @@ char *rob_state_to_str(ROBState state)
 static bool uf_is_idle(FunctionalUnit *uf)
 {
     UFTask *all[] = {uf->arith_units, uf->mul_units, uf->div_units, uf->load_store_units};
-    int sz[] = {ARTH_UF_POWER, MUL_UF_POWER, DIV_UF_POWER, LOAD_STORE_UF_POWER};
+    int sz[] = {global_config->add_cpi, global_config->mul_cpi, global_config->div_cpi, global_config->load_store_cpi};
     for (int g = 0; g < 4; g++)
         for (int i = 0; i < sz[g]; i++)
             if (all[g][i].active)
@@ -1248,36 +1278,58 @@ static bool uf_is_idle(FunctionalUnit *uf)
 
 void print_reorderbuffer(ReorderBuffer *rob)
 {
-    printf("[ReorderBuffer PRINT]  --------\n");
-    for (int i = 1; i <= rob->size; i++)
-    {
+    printf("[ReorderBuffer PRINT] ------------------------------------------------\n");
+    printf("Entry | Busy | Op    | DestReg | State        |    Value    | RS_Tag\n");
+    printf("------+------|-------|---------|--------------|-------------|-------\n");
+    for (int i = 1; i <= rob->size; i++) {
         ReorderBufferRow *row = &rob->rows[i];
-        if (row->busy)
-        {
-            printf("Entry %2d: %s | v=%f | state=%s\n", row->entry, op_to_str(row->inst.op), row->value, rob_state_to_str(row->state));
+        if (row->busy) {
+            printf(
+                "%5d |  %c   | %-5s | %7d | %-12s | %11.4f | %6d\n",
+                row->entry,
+                row->busy ? 'Y' : 'N',
+                op_to_str(row->inst.op),
+                row->destinationRegister,
+                rob_state_to_str(row->state),
+                row->value,
+                row->rs_tag
+            );
         }
     }
     printf("\n");
 }
 
-void printReserveStation(ReserverStation *rs, char * name)
+
+void printReserveStation(ReserverStation *rs, const char *name)
 {
-    printf("[ReserveStation %s]  --------\n", name);
-    for (int i = 0; i < rs->size; i++)
-    {
+    printf("[ReserveStation %s] ------------------------------------------------\n", name);
+    printf("Slot | Busy | Op    |     vj     |     vk     | qj  | qk  | Dest |   A\n");
+    printf("-----+------+-------+------------+------------+-----+-----+------+------\n");
+    for (int i = 0; i < rs->size; i++) {
         ReserveStationRow *row = &rs->rows[i];
-        if (row->busy)
-        {
-            printf("RS %2d: %s | vj=%f vk=%f | qj=%d qk=%d\n", i, op_to_str(row->op), row->vj, row->vk, row->qj, row->qk);
+        if (row->busy) {
+            printf(
+                "%4d |  %c   | %-5s | %10.4f | %10.4f | %3d | %3d | %4d | %4d\n",
+                i,
+                row->busy ? 'Y' : 'N',
+                op_to_str(row->op),
+                row->vj,
+                row->vk,
+                row->qj,
+                row->qk,
+                row->dest,
+                row->A
+            );
         }
     }
     printf("\n");
 }
+
 
 void printFunctionalUnit(FunctionalUnit *uf)
 {
     printf("[FunctionalUnit PRINT]  --------\n");
-    for (int i = 0; i < ARTH_UF_POWER; i++)
+    for (int i = 0; i < global_config->add_cpi; i++)
     {
         if (uf->arith_units[i].active)
         {
@@ -1285,7 +1337,7 @@ void printFunctionalUnit(FunctionalUnit *uf)
         }
     }
 
-    for (int i = 0; i < MUL_UF_POWER; i++)
+    for (int i = 0; i < global_config->mul_cpi; i++)
     {
         if (uf->mul_units[i].active)
         {
@@ -1293,7 +1345,7 @@ void printFunctionalUnit(FunctionalUnit *uf)
         }
     }
 
-    for (int i = 0; i < DIV_UF_POWER; i++)
+    for (int i = 0; i < global_config->div_cpi; i++)
     {
         if (uf->div_units[i].active)
         {
@@ -1301,7 +1353,7 @@ void printFunctionalUnit(FunctionalUnit *uf)
         }
     }
 
-    for (int i = 0; i < LOAD_STORE_UF_POWER; i++)
+    for (int i = 0; i < global_config->load_store_cpi; i++)
     {
         if (uf->load_store_units[i].active)
         {
@@ -1329,7 +1381,7 @@ int main()
 
     /// flag para cessar dispatch
     bool halt_received = false;
-
+    printf("\n\n\n[Tomasulo] Iniciando simulador\n\n\n");
     /// loop principal
     while (1)
     {
@@ -1383,7 +1435,7 @@ int main()
 
         // EXECUTE - Unidade Aritmética (ADD, SUB, LI)
         // puts("EXECUTANDO UNIDADE ARITMETICA");
-        for (int i = 0; i < ARTH_UF_POWER; i++)
+        for (int i = 0; i < global_config->add_cpi; i++)
         { // para toda unidade funcional aritmética
             UFTask *task = &functional_unit->arith_units[i];
             if (!task->active) // se a unidade não estiver ocupada
@@ -1410,8 +1462,8 @@ int main()
         }
 
         // EXECUTE - Unidade MUL
-        
-        for (int i = 0; i < MUL_UF_POWER; i++)
+
+        for (int i = 0; i < global_config->mul_cpi; i++)
         {
             UFTask *task = &functional_unit->mul_units[i];
             if (!task->active)
@@ -1438,7 +1490,7 @@ int main()
 
         // EXECUTE - Unidade DIV
         //  puts("[Execute] Executando DIV");
-        for (int i = 0; i < DIV_UF_POWER; i++)
+        for (int i = 0; i < global_config->div_cpi; i++)
         {
             UFTask *task = &functional_unit->div_units[i];
             if (!task->active)
@@ -1465,7 +1517,7 @@ int main()
 
         // EXECUTE - Unidade LOAD/STORE
         // puts("[Execute] Executando LOAD/STORE");
-        for (int i = 0; i < LOAD_STORE_UF_POWER; i++)
+        for (int i = 0; i < global_config->load_store_cpi; i++)
         {
             UFTask *task = &functional_unit->load_store_units[i];
             if (!task->active)
