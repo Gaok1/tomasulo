@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 // tomasulo_simulator.c
+=======
+>>>>>>> 15cfe77a193cd5a76ec2338e455c01b3dc709433
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
