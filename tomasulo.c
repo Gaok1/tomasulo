@@ -974,7 +974,7 @@ static void pub_reserve_station_listen_broadcast(ReserverStation *self, Broadcas
 static ReserveStationRow **pub_reserve_station_get_ready_filtered(ReserverStation *self,
                                                                   Operation ops_aceitas[],
                                                                   int ops_count,
-                                                                  int *out_count)
+                                                                  int *out_count) //remover
 {
     int cap = self->busyLen;
     ReserveStationRow **ready = malloc(cap * sizeof(ReserveStationRow *));
@@ -1386,11 +1386,44 @@ int main()
     while (1)
     {
         printf(">>> CLOCK %d <<<\n", GLOBAL_CLOCK);
+        
+        Operation arith_ops[] = {ADD, SUB, LI};
+        Operation mul_ops[] = {MUL};
+        Operation div_ops[] = {DIV};
+        Operation load_store_ops[] = {LOAD, STORE};
 
+        // EXECUTE - Unidade Aritmética (ADD, SUB, LI)
+        // puts("EXECUTANDO UNIDADE ARITMETICA");
+        for (int i = 0; i < global_config->add_cpi; i++)
+        { // para toda unidade funcional aritmética
+            UFTask *task = &functional_unit->arith_units[i];
+            if (!task->active) // se a unidade não estiver ocupada
+            {
+                ReserverStation *rs = functional_unit->arith_rs;
+                int ready_count = 0;
+                ReserveStationRow **ready = pub_reserve_station_get_ready_filtered(rs, arith_ops, 3, &ready_count);
+                for (int j = 0; j < ready_count; j++)
+                { // para cada instrução pronta
+                    if (functional_unit->instruction_buffer_available(functional_unit, ready[j]->op))
+                    {
+                        if (functional_unit->push(functional_unit, *ready[j])) // se a instrução da RS for efetivada na UF
+                        {
+                            // adiciona
+                            reorder_buffer->rows[ready[j]->dest].state = ROB_EXECUTE;
+                            printf("[Execute] Enviado ROB.destRegister = %d\n", ready[j]->dest);
+                            pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
+                            break;                                  // só dispara 1 por ciclo por unidade
+                        }
+                    }
+                }
+                free(ready);
+            }
+        }
         // ISSUE
+        Instruction * inst = NULL;
         if (!halt_received && !pub_reorder_buffer_is_full(reorder_buffer))
         {
-            Instruction *inst = instruction_queue->peek(instruction_queue);
+            inst = instruction_queue->peek(instruction_queue);
             if (inst)
             {
                 if (inst->op == HALT) // se for um halt, ativa flag e declara fim de emissão de instruções
@@ -1426,38 +1459,6 @@ int main()
                         }
                     }
                 }
-            }
-        }
-        Operation arith_ops[] = {ADD, SUB, LI};
-        Operation mul_ops[] = {MUL};
-        Operation div_ops[] = {DIV};
-        Operation load_store_ops[] = {LOAD, STORE};
-
-        // EXECUTE - Unidade Aritmética (ADD, SUB, LI)
-        // puts("EXECUTANDO UNIDADE ARITMETICA");
-        for (int i = 0; i < global_config->add_cpi; i++)
-        { // para toda unidade funcional aritmética
-            UFTask *task = &functional_unit->arith_units[i];
-            if (!task->active) // se a unidade não estiver ocupada
-            {
-                ReserverStation *rs = functional_unit->arith_rs;
-                int ready_count = 0;
-                ReserveStationRow **ready = pub_reserve_station_get_ready_filtered(rs, arith_ops, 3, &ready_count);
-                for (int j = 0; j < ready_count; j++)
-                { // para cada instrução pronta
-                    if (functional_unit->instruction_buffer_available(functional_unit, ready[j]->op))
-                    {
-                        if (functional_unit->push(functional_unit, *ready[j])) // se a instrução da RS for efetivada na UF
-                        {
-                            // adiciona
-                            reorder_buffer->rows[ready[j]->dest].state = ROB_EXECUTE;
-                            printf("[Execute] Enviado ROB.destRegister = %d\n", ready[j]->dest);
-                            pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
-                            break;                                  // só dispara 1 por ciclo por unidade
-                        }
-                    }
-                }
-                free(ready);
             }
         }
 
@@ -1582,13 +1583,19 @@ int main()
             printf("Pipeline nao esvaziou em 100 ciclos. Abortando...\n");
             return 0;
         }
+        puts("\n-----------------------------------  BUFFERS ----------------------------------------------------\n\n");
         print_reorderbuffer(reorder_buffer);
+        puts("");
         printFunctionalUnit(functional_unit);
+        puts("");
         printReserveStation(functional_unit->arith_rs, "ARITH");
+        puts("");
         printReserveStation(functional_unit->mul_rs, "MUL");
+        puts("");
         printReserveStation(functional_unit->div_rs, "DIV");
+        puts("");
         printReserveStation(functional_unit->load_store_rs, "LOAD_STORE");
-
+        puts("");
         puts("-----------------------------------------------------------------------------------------------------\n\n");
     }
 
