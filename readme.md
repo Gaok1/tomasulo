@@ -69,8 +69,6 @@ Este simulador didático demonstra esses conceitos numa implementação enxuta e
 | `049239-tomasulo.pdf`          | Artigo base (UNICAMP 2005) – referência teórica |
 | `06-pipeline-superescalar.pdf` | Slides sobre superescalaridade (PUC‑Minas)      |
 
-> **Dica 💡**: nada impede dividir `tomasulo.c` em módulos (`rob.c`, `rs.c`, etc.). Os comentários‑sentinela `/* trecho do codigo XYZ.h */` já apontam cortes naturais.
-
 ---
 
 ## Execução
