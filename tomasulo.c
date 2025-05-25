@@ -60,10 +60,10 @@ typedef struct ReserveStationRow
 {
     bool busy;
     Operation op;
-    double vj, vk; // operandos
-    int qj, qk;    // tags das estações produtoras dos operandos
-    Entry ROB_Entry;    // entrada no ROB
-    int A;         // imediato (offset para load/store)
+    double vj, vk;   // operandos
+    int qj, qk;      // tags das estações produtoras dos operandos
+    Entry ROB_Entry; // entrada no ROB
+    int A;           // imediato (offset para load/store)
 } ReserveStationRow;
 
 typedef struct ReserverStation
@@ -603,8 +603,6 @@ void printRegisterFile(RegisterFile *regFile)
     printf("+------+-----------+------+\n\n");
 }
 
-
-
 /* InstructionQueue */
 
 static Instruction *queue_dispatch(InstructionQueue *self)
@@ -984,7 +982,7 @@ static void pub_reserve_station_listen_broadcast(ReserverStation *self, Broadcas
 static ReserveStationRow **pub_reserve_station_get_ready_filtered(ReserverStation *self,
                                                                   Operation ops_aceitas[],
                                                                   int ops_count,
-                                                                  int *out_count) //remover
+                                                                  int *out_count) // remover
 {
     int cap = self->busyLen;
     ReserveStationRow **ready = malloc(cap * sizeof(ReserveStationRow *));
@@ -1149,31 +1147,43 @@ static bool uf_rs_has_free_space(FunctionalUnit *self, Operation op)
     return rs->busyLen < rs->size;
 }
 
+/// @brief  Executa 1 tick em todas as unidades funcionais
+/// @param self ponteiro para a unidade funcional
+/// @return um Broadcast com o resultado da execução
 static Broadcast *uf_tick(FunctionalUnit *self)
 {
-    static Broadcast out;
+    static Broadcast bd_out;
+    bool has_bd = false; // já capturamos um broadcast neste ciclo?
 
-    UFTask *groups[] = {self->arith_units, self->mul_units, self->div_units, self->load_store_units};
-    
-    int limits [] = {global_config->add_cpi, global_config->mul_cpi, global_config->div_cpi, global_config->load_store_cpi};
+    UFTask *groups[] = {self->arith_units,
+                        self->mul_units,
+                        self->div_units,
+                        self->load_store_units};
 
-    for (int g = 0; g < 4; ++g) // para cada grupo de UFs (ARITH, MUL, DIV, LOAD_STORE)
+    int limits[] = {global_config->add_cpi,
+                    global_config->mul_cpi,
+                    global_config->div_cpi,
+                    global_config->load_store_cpi};
+
+    for (int g = 0; g < 4; ++g)
     {
-        for (int i = 0; i < limits[g]; ++i) // para cada Nucleo do grupo
+        for (int i = 0; i < limits[g]; ++i)
         {
             UFTask *t = &groups[g][i];
-            if (!t->active || t->remaining == 0)
-                continue; // se o nucleo não está ativo ou já terminou, pula
-
-            t->remaining--;
-            printf("[UF] Executando op=%s | vj=%f vk=%f | restante=%d\n",
-                   op_to_str(t->row.op), t->row.vj, t->row.vk, t->remaining);
-
-            if (t->remaining > 0)
+            if (!t->active) /* núcleo ocioso */
                 continue;
 
-            // acabou nesse ciclo
-            t->active = false;
+            /* 1) Avança o clock do núcleo */
+            if (t->remaining > 0)
+                --t->remaining;
+
+            if (t->remaining > 0) /* ainda executando */
+                continue;
+
+            /* 2) Núcleo terminou neste ciclo */
+            
+
+            /* Calcula o resultado*/
             double res = 0.0;
             switch (t->row.op)
             {
@@ -1204,25 +1214,34 @@ static Broadcast *uf_tick(FunctionalUnit *self)
                 int addr = (int)(t->row.vk + t->row.A);
                 ram_store(&global_ram, addr, t->row.vj);
                 printf("[UF] -- [STORE] end=%d valor=%f\n", addr, t->row.vj);
-                out.entry = t->row.ROB_Entry;
-                out.value = 0; // STORE nao gera resultado para broadcast, mas libera RS e ROB
-                return &out;
+                /* STORE não gera valor; mas precisamos liberar RS/ROB */
+                if (!has_bd)
+                {
+                    bd_out.entry = t->row.ROB_Entry;
+                    bd_out.value = 0.0;
+                    t->active = false;
+                    has_bd = true;
+                }
+                continue; /* passa p/ próximo núcleo */
             }
-            break;
             default:
                 break;
             }
 
-            printf("[UF] [Broadcast] Finalizou %s | ROB=%d | Resultado=%f\n",
-                   op_to_str(t->row.op), t->row.ROB_Entry, res);
-
-            out.entry = t->row.ROB_Entry;
-            out.value = res;
-            return &out;
+            /* 3) Registra o primeiro broadcast do ciclo */
+            if (!has_bd)
+            {
+                bd_out.entry = t->row.ROB_Entry;
+                bd_out.value = res;
+                t->active = false;
+                has_bd = true;
+            }
         }
     }
-    return NULL;
+
+    return has_bd ? &bd_out : NULL; /* 4) Um ou nenhum broadcast */
 }
+
 /// @brief Cria a unidade funcional para as operações (ADD, SUB, MUL, DIV, LOAD, STORE)
 /// @return  ponteiro para a unidade funcional
 static FunctionalUnit *pub_create_functional_unit(void)
@@ -1291,33 +1310,33 @@ void print_reorderbuffer(ReorderBuffer *rob)
     printf("[ReorderBuffer PRINT] ------------------------------------------------\n");
     printf("Entry | Busy | Op    | DestReg | State        |    Value    | RS_Tag\n");
     printf("------+------|-------|---------|--------------|-------------|-------\n");
-    for (int i = 1; i <= rob->size; i++) {
+    for (int i = 1; i <= rob->size; i++)
+    {
         ReorderBufferRow *row = &rob->rows[i];
-        
-            printf(
-                "%5d |  %c   | %-5s | %7d | %-12s | %11.4f | %6d\n",
-                row->entry,
-                row->busy ? 'Y' : 'N',
-                op_to_str(row->inst.op),
-                row->destinationRegister,
-                rob_state_to_str(row->state),
-                row->value,
-                row->rs_tag
-            );
-        
+
+        printf(
+            "%5d |  %c   | %-5s | %7d | %-12s | %11.4f | %6d\n",
+            row->entry,
+            row->busy ? 'Y' : 'N',
+            op_to_str(row->inst.op),
+            row->destinationRegister,
+            rob_state_to_str(row->state),
+            row->value,
+            row->rs_tag);
     }
     printf("\n");
 }
-
 
 void printReserveStation(ReserverStation *rs, const char *name)
 {
     printf("[ReserveStation %s] ------------------------------------------------\n", name);
     printf("Slot | Busy | Op    |     vj     |     vk     | qj  | qk  | RobEntry |   A\n");
     printf("-----+------+-------+------------+------------+-----+-----+------+------\n");
-    for (int i = 0; i < rs->size; i++) {
+    for (int i = 0; i < rs->size; i++)
+    {
         ReserveStationRow *row = &rs->rows[i];
-        if (row->busy) {
+        if (row->busy)
+        {
             printf(
                 "%4d |  %c   | %-5s | %10.4f | %10.4f | %3d | %3d | %4d | %4d\n",
                 i,
@@ -1328,13 +1347,11 @@ void printReserveStation(ReserverStation *rs, const char *name)
                 row->qj,
                 row->qk,
                 row->ROB_Entry,
-                row->A
-            );
+                row->A);
         }
     }
     printf("\n");
 }
-
 
 void printFunctionalUnit(FunctionalUnit *uf)
 {
@@ -1374,7 +1391,6 @@ void printFunctionalUnit(FunctionalUnit *uf)
     printf("\n");
 }
 
-
 /* main.c */
 
 int main()
@@ -1397,14 +1413,14 @@ int main()
     while (1)
     {
         printf(">>> CLOCK %d <<<\n", GLOBAL_CLOCK);
-        
+
         Operation arith_ops[] = {ADD, SUB, LI};
         Operation mul_ops[] = {MUL};
         Operation div_ops[] = {DIV};
         Operation load_store_ops[] = {LOAD, STORE};
 
         // EXECUTE - Unidade Aritmética (ADD, SUB, LI)
-        // puts("EXECUTANDO UNIDADE ARITMETICA");
+
         for (int i = 0; i < global_config->add_cpi; i++)
         { // para toda unidade funcional aritmética
             UFTask *task = &functional_unit->arith_units[i];
@@ -1430,51 +1446,8 @@ int main()
                 free(ready);
             }
         }
-        // ISSUE
-        Instruction * inst = NULL;
-        if (!halt_received && !pub_reorder_buffer_is_full(reorder_buffer))
-        {
-            inst = instruction_queue->peek(instruction_queue);
-            if (inst)
-            {
-                if (inst->op == HALT) // se for um halt, ativa flag e declara fim de emissão de instruções
-                {
-                    halt_received = true;
-                    printf("[HALT] Fim da emissao.\n");
-                    // Descarta o HALT da fila para nao tentar emitir na RS/ROB
-                    instruction_queue->dispatch(instruction_queue);
-                    continue; // não processa o halt
-                }
-                else
-                {
-                    ReserverStation *rs = get_rs_for_op(functional_unit, inst->op);
-                    if (!rs)
-                    {
-                        PANIC("[Issue] Operaçao desconhecida para RS\n");
-                    }
-                    if (rs->busyLen >= rs->size)
-                    {
-                        printf("[Issue] Sem espaço na RS para %s\n", op_to_str(inst->op));
-                        // Se não houver espaço na RS, não emite a instrução,
-                    }
-                    else
-                    {
-                        printf("[Issue] Emissao de instrucao de OP = %s\n", op_to_str(inst->op));
-                        inst = instruction_queue->dispatch(instruction_queue);
-                        if (inst)
-                        {
-                            Entry entry = pub_reorder_buffer_insert(reorder_buffer, *inst, 0);
-                            int rs_tag = pub_reserve_station_add_instruction(rs, *inst, register_file, reorder_buffer, entry);
-                            reorder_buffer->rows[entry].rs_tag = rs_tag;
-                            printf("[Issue] RS.tag = %d, ROB.entry = %d\n", rs_tag, entry);
-                        }
-                    }
-                }
-            }
-        }
 
         // EXECUTE - Unidade MUL
-
         for (int i = 0; i < global_config->mul_cpi; i++)
         {
             UFTask *task = &functional_unit->mul_units[i];
@@ -1554,6 +1527,49 @@ int main()
             }
         }
 
+        // ISSUE
+        Instruction *inst = NULL;
+        if (!halt_received && !pub_reorder_buffer_is_full(reorder_buffer))
+        {
+            inst = instruction_queue->peek(instruction_queue);
+            if (inst)
+            {
+                if (inst->op == HALT) // se for um halt, ativa flag e declara fim de emissão de instruções
+                {
+                    halt_received = true;
+                    printf("[HALT] Fim da emissao.\n");
+                    // Descarta o HALT da fila para nao tentar emitir na RS/ROB
+                    instruction_queue->dispatch(instruction_queue);
+                    continue; // não processa o halt
+                }
+                else
+                {
+                    ReserverStation *rs = get_rs_for_op(functional_unit, inst->op);
+                    if (!rs)
+                    {
+                        PANIC("[Issue] Operaçao desconhecida para RS\n");
+                    }
+                    if (rs->busyLen >= rs->size)
+                    {
+                        printf("[Issue] Sem espaço na RS para %s\n", op_to_str(inst->op));
+                        // Se não houver espaço na RS, não emite a instrução,
+                    }
+                    else
+                    {
+                        printf("[Issue] Emissao de instrucao de OP = %s\n", op_to_str(inst->op));
+                        inst = instruction_queue->dispatch(instruction_queue);
+                        if (inst)
+                        {
+                            Entry entry = pub_reorder_buffer_insert(reorder_buffer, *inst, 0);
+                            int rs_tag = pub_reserve_station_add_instruction(rs, *inst, register_file, reorder_buffer, entry);
+                            reorder_buffer->rows[entry].rs_tag = rs_tag;
+                            printf("[Issue] RS.tag = %d, ROB.entry = %d\n", rs_tag, entry);
+                        }
+                    }
+                }
+            }
+        }
+
         // WRITE-BACK
         Broadcast *bd = functional_unit->broadcast(functional_unit);
         if (bd)
@@ -1604,8 +1620,6 @@ int main()
         printRegisterFile(register_file);
         puts("");
         puts("-----------------------------------------------------------------------------------------------------\n\n");
-
-        
     }
 
     printRegisterFile(register_file);
