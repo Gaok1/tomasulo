@@ -1147,6 +1147,19 @@ static bool uf_rs_has_free_space(FunctionalUnit *self, Operation op)
     return rs->busyLen < rs->size;
 }
 
+static void send_to_execution()
+{
+    UFTask *groups[] = {self->arith_units,
+                        self->mul_units,
+                        self->div_units,
+                        self->load_store_units};
+
+    int limits[] = {global_config->add_cpi,
+                    global_config->mul_cpi,
+                    global_config->div_cpi,
+                    global_config->load_store_cpi};
+}
+
 /// @brief  Executa 1 tick em todas as unidades funcionais
 /// @param self ponteiro para a unidade funcional
 /// @return um Broadcast com o resultado da execução
@@ -1181,7 +1194,6 @@ static Broadcast *uf_tick(FunctionalUnit *self)
                 continue;
 
             /* 2) Núcleo terminou neste ciclo */
-            
 
             /* Calcula o resultado*/
             double res = 0.0;
@@ -1571,7 +1583,7 @@ int main()
         }
 
         // WRITE-BACK
-        Broadcast *bd = functional_unit->broadcast(functional_unit);
+        Broadcast *bd = functional_unit->broadcast(functional_unit); // executa as UFs
         if (bd)
         {
             printf("[WriteBack] ROB.entry = %d | result => %f\n", bd->entry, bd->value);
