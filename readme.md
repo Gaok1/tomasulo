@@ -11,16 +11,13 @@
 1. [Motivação](#motivação)
 2. [Visão Geral da Arquitetura](#visãogeral-da-arquitetura)
 3. [Estrutura de Pastas & Arquivos](#estrutura-de-pastas--arquivos)
-4. [Compilação](#compilação)
-5. [Execução](#execução)
-6. [Configuração (latências)](#configuração-latências)
-7. [Formato das Instruções](#formato-das-instruções)
-8. [Principais Estruturas de Dados](#principais-estruturas-de-dados)
-9. [Ciclo de Clock](#ciclo-de-clock)
-10. [Log de Saída](#log-de-saída)
-11. [Limitações Conhecidas](#limitações-conhecidas)
-12. [Roadmap de Melhorias](#roadmap-de-melhorias)
-13. [Licença](#licença)
+4. [Execução](#execução)
+5. [Configuração (latências)](#configuração-latências)
+6. [Formato das Instruções](#formato-das-instruções)
+7. [Principais Estruturas de Dados](#principais-estruturas-de-dados)
+8. [Ciclo de Clock](#ciclo-de-clock)
+9. [Log de Saída](#log-de-saída)
+10. [Limitações Conhecidas](#limitações-conhecidas)
 
 ---
 
@@ -71,8 +68,6 @@ Este simulador didático demonstra esses conceitos numa implementação enxuta e
 | `config.txt`                   | Latência (*CPI*) por operação                   |
 | `049239-tomasulo.pdf`          | Artigo base (UNICAMP 2005) – referência teórica |
 | `06-pipeline-superescalar.pdf` | Slides sobre superescalaridade (PUC‑Minas)      |
-
-> **Dica 💡**: nada impede dividir `tomasulo.c` em módulos (`rob.c`, `rs.c`, etc.). Os comentários‑sentinela `/* trecho do codigo XYZ.h */` já apontam cortes naturais.
 
 ---
 
@@ -182,25 +177,8 @@ Use esse log para depurar dependências ou *deadlocks* (ver [Limitações](#limi
 
 ## Limitações Conhecidas
 
-* **ROB Entry ≠ ordem física** – fila circular pode quebrar a ordem se não gerenciada.
 * **CDB único** – contende broadcast (modelo original); não simula múltiplos barramentos.
-* **Sem previsão de desvio** – não há *branch speculation*.
-* **Sem exceções/flush** – exceções precisas seriam tratadas no estado `ROB_EXCEPTION` (futuro).
-* **Código monolítico** – didático, porém difícil de testar; modularização sugerida.
+* **Apenas 1 instrução pode ser despachada para execução por unidade funcional** - se houver multiplas instruções prontas, apenas 1 instrução por cada unidade funcional será despachada por ciclo de clock
 
 ---
 
-## Roadmap de Melhorias
-
-* [ ] Refatorar em módulos (`rob.c`, `uf.c`, `parser.c`).
-* [ ] Implementar *branch* e *speculative execution*.
-* [ ] Suporte a múltiplos CDBs.
-* [ ] Exportar traces para o Visual Tomasulo.
-* [ ] Testes unitários com **CMocka**.
-* [ ] Interface TUI utilizando **ncurses**.
-
----
-
-## Licença
-
-Código disponibilizado sob a licença **MIT**. Consulte o arquivo `LICENSE` para detalhes.
