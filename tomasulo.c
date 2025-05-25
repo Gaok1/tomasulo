@@ -62,7 +62,7 @@ typedef struct ReserveStationRow
     Operation op;
     double vj, vk; // operandos
     int qj, qk;    // tags das estações produtoras dos operandos
-    Entry dest;    // entrada no ROB
+    Entry ROB_Entry;    // entrada no ROB
     int A;         // imediato (offset para load/store)
 } ReserveStationRow;
 
@@ -586,14 +586,24 @@ static RegisterFile *pub_create_register_file(int size)
 
 void printRegisterFile(RegisterFile *regFile)
 {
-    printf("[RegisterFile] \n");
+    printf("[RegisterFile]\n");
+    printf("+------+-----------+------+\n");
+    printf("| Reg  |   Valor   | QI   |\n");
+    printf("+------+-----------+------+\n");
+
     for (int i = 0; i < regFile->size; i++)
     {
         RegisterStatus *reg = &regFile->registers[i];
-        printf("r%2d = %5.2f \n", i, reg->value);
+        printf("| r%-3d | %9.2f | %-4d |\n",
+               i,
+               reg->value,
+               reg->qi);
     }
-    printf("\n");
+
+    printf("+------+-----------+------+\n\n");
 }
+
+
 
 /* InstructionQueue */
 
@@ -694,7 +704,7 @@ void pub_reserve_station_free(ReserverStation *self, ReserveStationRow *row)
         row->qk = 0;
         row->vj = 0;
         row->vk = 0;
-        row->dest = 0;
+        row->ROB_Entry = 0;
         row->A = 0;
         row->op = HALT; // ou algum valor padrao inválido seguro
         self->busyLen--;
@@ -815,7 +825,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
     ReserveStationRow *row = &self->rows[slot];
     row->busy = true;
     row->op = inst.op;
-    row->dest = rob_entry;
+    row->ROB_Entry = rob_entry;
 
     switch (inst.op)
     {
@@ -1194,7 +1204,7 @@ static Broadcast *uf_tick(FunctionalUnit *self)
                 int addr = (int)(t->row.vk + t->row.A);
                 ram_store(&global_ram, addr, t->row.vj);
                 printf("[UF] -- [STORE] end=%d valor=%f\n", addr, t->row.vj);
-                out.entry = t->row.dest;
+                out.entry = t->row.ROB_Entry;
                 out.value = 0; // STORE nao gera resultado para broadcast, mas libera RS e ROB
                 return &out;
             }
@@ -1204,9 +1214,9 @@ static Broadcast *uf_tick(FunctionalUnit *self)
             }
 
             printf("[UF] [Broadcast] Finalizou %s | ROB=%d | Resultado=%f\n",
-                   op_to_str(t->row.op), t->row.dest, res);
+                   op_to_str(t->row.op), t->row.ROB_Entry, res);
 
-            out.entry = t->row.dest;
+            out.entry = t->row.ROB_Entry;
             out.value = res;
             return &out;
         }
@@ -1283,7 +1293,7 @@ void print_reorderbuffer(ReorderBuffer *rob)
     printf("------+------|-------|---------|--------------|-------------|-------\n");
     for (int i = 1; i <= rob->size; i++) {
         ReorderBufferRow *row = &rob->rows[i];
-        if (row->busy) {
+        
             printf(
                 "%5d |  %c   | %-5s | %7d | %-12s | %11.4f | %6d\n",
                 row->entry,
@@ -1294,7 +1304,7 @@ void print_reorderbuffer(ReorderBuffer *rob)
                 row->value,
                 row->rs_tag
             );
-        }
+        
     }
     printf("\n");
 }
@@ -1303,7 +1313,7 @@ void print_reorderbuffer(ReorderBuffer *rob)
 void printReserveStation(ReserverStation *rs, const char *name)
 {
     printf("[ReserveStation %s] ------------------------------------------------\n", name);
-    printf("Slot | Busy | Op    |     vj     |     vk     | qj  | qk  | Dest |   A\n");
+    printf("Slot | Busy | Op    |     vj     |     vk     | qj  | qk  | RobEntry |   A\n");
     printf("-----+------+-------+------------+------------+-----+-----+------+------\n");
     for (int i = 0; i < rs->size; i++) {
         ReserveStationRow *row = &rs->rows[i];
@@ -1317,7 +1327,7 @@ void printReserveStation(ReserverStation *rs, const char *name)
                 row->vk,
                 row->qj,
                 row->qk,
-                row->dest,
+                row->ROB_Entry,
                 row->A
             );
         }
@@ -1364,6 +1374,7 @@ void printFunctionalUnit(FunctionalUnit *uf)
     printf("\n");
 }
 
+
 /* main.c */
 
 int main()
@@ -1371,8 +1382,8 @@ int main()
     /// Incialização
     pub_start_config();
     init_ram(1024);
-    register_file = pub_create_register_file(32);
-    reorder_buffer = pub_create_reorder_buffer(32);
+    register_file = pub_create_register_file(12);
+    reorder_buffer = pub_create_reorder_buffer(8);
     functional_unit = pub_create_functional_unit();
 
     // load/parsing de instruções
@@ -1409,8 +1420,8 @@ int main()
                         if (functional_unit->push(functional_unit, *ready[j])) // se a instrução da RS for efetivada na UF
                         {
                             // adiciona
-                            reorder_buffer->rows[ready[j]->dest].state = ROB_EXECUTE;
-                            printf("[Execute] Enviado ROB.destRegister = %d\n", ready[j]->dest);
+                            reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
+                            printf("[Execute] Enviado ROB.RobEntry = %d\n", ready[j]->ROB_Entry);
                             pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                             break;                                  // só dispara 1 por ciclo por unidade
                         }
@@ -1478,8 +1489,8 @@ int main()
                     {
                         if (functional_unit->push(functional_unit, *ready[j]))
                         {
-                            reorder_buffer->rows[ready[j]->dest].state = ROB_EXECUTE;
-                            printf("[Execute] Enviado ROB.destRegister = %d\n", ready[j]->dest);
+                            reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
+                            printf("[Execute] Enviado ROB.Entry = %d\n", ready[j]->ROB_Entry);
                             pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                             break;
                         }
@@ -1505,8 +1516,8 @@ int main()
                     {
                         if (functional_unit->push(functional_unit, *ready[j]))
                         {
-                            reorder_buffer->rows[ready[j]->dest].state = ROB_EXECUTE;
-                            printf("[Execute] Enviado ROB.destRegister = %d\n", ready[j]->dest);
+                            reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
+                            printf("[Execute] Enviado ROB.Entry = %d\n", ready[j]->ROB_Entry);
                             pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                             break;
                         }
@@ -1532,8 +1543,8 @@ int main()
                     {
                         if (functional_unit->push(functional_unit, *ready[j]))
                         {
-                            reorder_buffer->rows[ready[j]->dest].state = ROB_EXECUTE;
-                            printf("[Execute] Enviado ROB.destRegister = %d\n", ready[j]->dest);
+                            reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
+                            printf("[Execute] Enviado ROB.Entry = %d\n", ready[j]->ROB_Entry);
                             pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                             break;
                         }
@@ -1577,12 +1588,6 @@ int main()
 
         GLOBAL_CLOCK++;
 
-        if (GLOBAL_CLOCK > 20)
-        {
-            printRegisterFile(register_file);
-            printf("Pipeline nao esvaziou em 100 ciclos. Abortando...\n");
-            return 0;
-        }
         puts("\n-----------------------------------  BUFFERS ----------------------------------------------------\n\n");
         print_reorderbuffer(reorder_buffer);
         puts("");
@@ -1596,7 +1601,11 @@ int main()
         puts("");
         printReserveStation(functional_unit->load_store_rs, "LOAD_STORE");
         puts("");
+        printRegisterFile(register_file);
+        puts("");
         puts("-----------------------------------------------------------------------------------------------------\n\n");
+
+        
     }
 
     printRegisterFile(register_file);

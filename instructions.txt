@@ -9,23 +9,23 @@ add  r3,r1,r2
 sub  r4,r3,r1
 
 # ---------- 3. WAW (duas escritas em r5)
-mul  r5,r1,r2       # 1ª escrito em r5
-add  r5,r5,r2       # 2ª escrito em r5  (deve prevalecer)
+mul  r5,r1,r2       # 1ª escrita em r5
+add  r5,r5,r2       # 2ª escrita em r5  (deve prevalecer)
 
 # ---------- 4. WAR (sub lê r8 antes de mul sobrescrever)
 sub  r6,r7,r8
 mul  r8,r1,r2
 
-# ---------- 5. Dependências de memória
-store r1,0(r20)     # STORE→LOAD  (RAW em memória)
-load  r9,0(r20)
+# ---------- 5. Dependências de memória  — base é r0 (zero)
+store r1,0(r0)      # STORE→LOAD  (RAW em memória)
+load  r9,0(r0)
 
-load  r10,4(r20)    # LOAD→STORE (WAR em memória)
-store r2,4(r20)
+load  r10,4(r0)     # LOAD→STORE (WAR em memória)
+store r2,4(r0)
 
-store r3,8(r20)     # STORE→STORE (WAW em memória)
-store r4,8(r20)
-load  r11,8(r20)    # deve ler o valor da segunda STORE
+store r3,8(r0)      # STORE→STORE (WAW em memória)
+store r4,8(r0)
+load  r11,8(r0)     # deve ler o valor da segunda STORE
 
 # ---------- fim
 halt
