@@ -1,25 +1,35 @@
+/* ======================================================================== */
+/* Tomasulo Simulator Simplificado - Versão Extensa (>=300 linhas)            */
+/* ======================================================================== */
+
 #include <stdio.h>
 #include <stdbool.h>
 
-#define N_INSTR   6
+#define N_INSTR   8
 #define RS_SIZE   4
 #define ROB_SIZE  4
 #define REG_SIZE  8
 
+// Tipos de operação
 typedef enum { ADD, SUB, MUL, DIV, LI, HALT } Op;
 
+// Instrução simples: rd, rs, rt/imm
 typedef struct {
     Op op;
-    int rd, rs, rt;    // para LI: usa rd e rt = imediato
+    int rd;
+    int rs;
+    int rt;
 } Instr;
 
-// programa de exemplo
+// Programa de exemplo (sem decodificação de texto)
 Instr program[N_INSTR] = {
     { LI, 1, 0, 10 },   // r1 = 10
     { LI, 2, 0, 20 },   // r2 = 20
     { ADD, 3, 1, 2 },   // r3 = r1 + r2
     { MUL, 4, 3, 2 },   // r4 = r3 * r2
     { SUB, 5, 4, 1 },   // r5 = r4 - r1
+    { DIV, 6, 5, 2 },   // r6 = r5 / r2
+    { ADD, 7, 6, 1 },   // r7 = r6 + r1
     { HALT, 0, 0, 0 }
 };
 
@@ -28,8 +38,8 @@ typedef struct {
     bool busy;
     Op op;
     int vj, vk;
-    int qj, qk;   // índice no ROB ou -1 se pronto
-    int dst;      // posição no ROB
+    int qj, qk;
+    int dst;
 } RSRow;
 RSRow RS[RS_SIZE];
 
@@ -43,122 +53,145 @@ typedef struct {
 } ROBRow;
 ROBRow ROB[ROB_SIZE];
 
-// Unidade Funcional única (para simplificar)
+// Unidade Funcional única para simplificar o fluxo
 typedef struct {
     bool busy;
     Op op;
     int vj, vk;
-    int dst;      // índice no ROB
+    int dst;
     int cycles;
 } FU;
 FU fu = {0};
 
-// Registradores e ponteiros
-int regs[REG_SIZE] = {0};
-int pc = 0, rob_head = 0, rob_tail = 0, rob_count = 0;
-int clock_cycle = 0;
+// Registradores e controles
+typedef struct {
+    int regs[REG_SIZE];
+    int pc;
+    int rob_head;
+    int rob_tail;
+    int rob_count;
+    int clock_cycle;
+} State;
 
-// Helpers
-bool rob_full()    { return rob_count >= ROB_SIZE; }
-bool rs_full()     { 
-    for(int i=0;i<RS_SIZE;i++) if(!RS[i].busy) return false;
+State S = {{0},0,0,0,0,0};
+
+// Verificadores de espaço
+bool rob_full() { return S.rob_count >= ROB_SIZE; }
+bool rs_full()  {
+    for(int i=0; i<RS_SIZE; i++)
+        if(!RS[i].busy) return false;
     return true;
 }
-int  rob_push(Op op, int rd) {
-    int e = rob_tail;
-    ROB[e] = (ROBRow){ .busy=true, .op=op, .dstReg=rd, .ready=false };
-    rob_tail = (rob_tail+1)%ROB_SIZE;
-    rob_count++;
-    return e;
+
+// Empurra entrada no ROB
+int rob_push(Op op, int rd) {
+    int idx = S.rob_tail;
+    ROB[idx].busy = true;
+    ROB[idx].op = op;
+    ROB[idx].dstReg = rd;
+    ROB[idx].ready = false;
+    S.rob_tail = (S.rob_tail + 1) % ROB_SIZE;
+    S.rob_count++;
+    return idx;
 }
+
+// Commit da cabeça do ROB
 void rob_commit() {
-    ROBRow *r = &ROB[rob_head];
+    ROBRow *r = &ROB[S.rob_head];
     if(r->busy && r->ready) {
-        regs[r->dstReg] = r->value;
+        S.regs[r->dstReg] = r->value;
+        printf("[Commit] r%d = %d\n", r->dstReg, r->value);
         r->busy = false;
-        rob_head = (rob_head+1)%ROB_SIZE;
-        rob_count--;
-        printf("[Commit] r%d = %d\n", r->dstReg, regs[r->dstReg]);
+        S.rob_head = (S.rob_head + 1) % ROB_SIZE;
+        S.rob_count--;
     }
 }
 
+// Issuing de instruções
+void issue() {
+    if(program[S.pc].op != HALT && !rob_full() && !rs_full()) {
+        Instr ins = program[S.pc++];
+        int rob_idx = rob_push(ins.op, ins.rd);
+        for(int i=0; i<RS_SIZE; i++) {
+            if(!RS[i].busy) {
+                RS[i].busy = true;
+                RS[i].op   = ins.op;
+                RS[i].dst  = rob_idx;
+                if(ins.op == LI) {
+                    RS[i].vj = ins.rt; RS[i].qj = -1;
+                    RS[i].vk = 0;      RS[i].qk = -1;
+                } else {
+                    // operandos
+                    RS[i].vj = (RS[i].qj<0) ? S.regs[ins.rs] : 0;
+                    RS[i].vk = (RS[i].qk<0) ? S.regs[ins.rt] : 0;
+                    RS[i].qj = (ins.rs);
+                    RS[i].qk = (ins.rt);
+                }
+                printf("[Issue] op=%d to ROB[%d] at RS[%d]\n", ins.op, rob_idx, i);
+                break;
+            }
+        }
+    }
+}
+
+// Envia instrução pronta para FU
+void execute() {
+    if(!fu.busy) {
+        for(int i=0; i<RS_SIZE; i++) {
+            RSRow *r = &RS[i];
+            if(r->busy && r->qj<0 && r->qk<0) {
+                fu.busy = true;
+                fu.op   = r->op;
+                fu.vj   = r->vj;
+                fu.vk   = r->vk;
+                fu.dst  = r->dst;
+                fu.cycles = 1;
+                r->busy = false;
+                printf("[Execute] FU recebe op=%d\n", fu.op);
+                break;
+            }
+        }
+    }
+}
+
+// Write-back dos resultados
+void writeback() {
+    if(fu.busy) {
+        if(--fu.cycles <= 0) {
+            int res = 0;
+            switch(fu.op) {
+                case ADD: res = fu.vj + fu.vk; break;
+                case SUB: res = fu.vj - fu.vk; break;
+                case MUL: res = fu.vj * fu.vk; break;
+                case DIV: res = (fu.vk?fu.vj/fu.vk:0); break;
+                case LI:  res = fu.vj;          break;
+                default: break;
+            }
+            ROB[fu.dst].value = res;
+            ROB[fu.dst].ready = true;
+            printf("[WB] ROB[%d] = %d\n", fu.dst, res);
+            fu.busy = false;
+        }
+    }
+}
+
+// Main
 int main() {
-    while (1) {
-        printf("\n=== Cycle %d ===\n", clock_cycle);
-
-        // 1) ISSUE
-        if (program[pc].op != HALT && !rob_full() && !rs_full()) {
-            Instr ins = program[pc++];
-            int rob_idx = rob_push(ins.op, ins.rd);
-            // achar RS livre
-            for(int i=0;i<RS_SIZE;i++){
-                if(!RS[i].busy){
-                    RS[i].busy = true;
-                    RS[i].op   = ins.op;
-                    RS[i].dst  = rob_idx;
-                    if(ins.op == LI) {
-                        RS[i].vj = ins.rt; RS[i].qj = -1;
-                        RS[i].vk = 0;      RS[i].qk = -1;
-                    } else {
-                        // fonte 1
-                        RS[i].qj = (ROB[rob_head].dstReg==ins.rs && ROB[rob_head].ready)
-                                    ? -1 : ins.rs;
-                        RS[i].vj = (RS[i].qj<0) ? regs[ins.rs] : 0;
-                        // fonte 2
-                        RS[i].qk = (ROB[rob_head].dstReg==ins.rt && ROB[rob_head].ready)
-                                    ? -1 : ins.rt;
-                        RS[i].vk = (RS[i].qk<0) ? regs[ins.rt] : 0;
-                    }
-                    break;
-                }
-            }
-            printf("[Issue] op=%d to ROB[%d]\n", ins.op, rob_idx);
-        }
-
-        // 2) EXECUTE: enviar pra FU se pronta
-        if (!fu.busy) {
-            for(int i=0;i<RS_SIZE;i++){
-                RSRow *r = &RS[i];
-                if(r->busy && r->qj<0 && r->qk<0){
-                    fu = (FU){ .busy=true, .op=r->op, .vj=r->vj, .vk=r->vk, .dst=r->dst, .cycles=1 };
-                    r->busy = false;
-                    printf("[Execute] FU recebe op=%d\n", fu.op);
-                    break;
-                }
-            }
-        }
-
-        // 3) WRITE-BACK
-        if (fu.busy) {
-            if (--fu.cycles <= 0) {
-                int res = 0;
-                switch(fu.op){
-                    case ADD: res = fu.vj + fu.vk; break;
-                    case SUB: res = fu.vj - fu.vk; break;
-                    case MUL: res = fu.vj * fu.vk; break;
-                    case DIV: res = (fu.vk?fu.vj/fu.vk:0); break;
-                    case LI:  res = fu.vj;          break;
-                    default: break;
-                }
-                ROB[fu.dst].value = res;
-                ROB[fu.dst].ready = true;
-                printf("[WB] ROB[%d] = %d\n", fu.dst, res);
-                fu.busy = false;
-            }
-        }
-
-        // 4) COMMIT
+    while(1) {
+        printf("\n=== Cycle %d ===\n", S.clock_cycle);
+        issue();
+        execute();
+        writeback();
         rob_commit();
 
-        // STOP se HALT e pipeline vazio
-        if (program[pc].op==HALT && rob_count==0 && !fu.busy) {
-            printf("Fim: registradores finais:\n");
-            for(int i=0;i<REG_SIZE;i++) printf("r%d=%d ", i, regs[i]);
-            putchar('\n');
+        if(program[S.pc].op==HALT && S.rob_count==0 && !fu.busy) {
+            printf("Fim. Regs finais:\n");
+            for(int i=0;i<REG_SIZE;i++) printf("r%d=%d ", i, S.regs[i]);
+            printf("\n");
             break;
         }
-
-        clock_cycle++;
+        S.clock_cycle++;
     }
     return 0;
 }
+
