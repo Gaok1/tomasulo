@@ -93,6 +93,7 @@ MUL_BUF_LEN : 2 # tamanho da estação de reserva para multiplicação
 DIV_BUF_LEN : 2 # tamanho da estação de reserva para divisão
 ARITH_BUF_LEN : 3 # tamanho da estação de reserva para operações aritméticas
 LOAD_STORE_BUF_LEN : 4 # tamanho da estação de reserva para load/store
+REGISTERS : 8 # número de registradores
 end
 ```
 
