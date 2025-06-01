@@ -11,6 +11,12 @@ int ARITH_RS_ROWS = 3;
 int LOAD_STORE_RS_ROWS = 4;
 int REGISTERS_LEN = 8;
 
+#define ARITH_UF_ROWS 3
+#define MUL_UF_ROWS 2
+#define DIV_UF_ROWS 2
+#define LOAD_STORE_UF_ROWS 4
+
+
 /// @brief reorder buffer entry
 typedef int Entry;
 typedef int RegAddr;
@@ -28,7 +34,7 @@ typedef enum
 
 typedef enum Operation
 {
-    ADD =1,
+    ADD = 1,
     SUB = 2,
     DIV = 3,
     MUL = 4,
@@ -268,14 +274,15 @@ static inline const char *op_to_str(Operation op)
 }
 
 /**
- * @brief Le as configuracões do arquivo config.txt que configura as CPI's para cada operacao
+ * @brief Le as configuracões do arquivo config.txt
  *
- *  modifica a variavel global `global_config`
+ *
+ * @return  modifica a variavel global `global_config`
  */
 void pub_start_config()
 {
     FILE *fp = fopen(CONFIG_FILE, "r");
-    Config *cfg = calloc(1,sizeof *cfg);
+    Config *cfg = calloc(1, sizeof *cfg);
     if (!cfg)
     {
         PANIC("Erro ao alocar Config");
@@ -341,7 +348,8 @@ void pub_start_config()
                     LOAD_STORE_RS_ROWS = value;
                     printf("[CONFIG] LOAD_STORE_RS_ROWS set to %d\n", LOAD_STORE_RS_ROWS);
                 }
-                else if (strcmp(key, "REGISTERS") == 0){
+                else if (strcmp(key, "REGISTERS") == 0)
+                {
                     REGISTERS_LEN = value;
                     printf("[CONFIG] REGISTERS_LEN set to %d\n", REGISTERS_LEN);
                 }
@@ -361,17 +369,17 @@ void pub_start_config()
         puts("\n\n");
         // resumo final
         printf("[CONFIG] resultados finais:\n");
-        printf("  MUL         = %d\n", cfg->mul_cpi);
-        printf("  ADD         = %d\n", cfg->add_cpi);
-        printf("  SUB         = %d\n", cfg->sub_cpi);
-        printf("  DIV         = %d\n", cfg->div_cpi);
-        printf("  LOAD_STORE  = %d\n", cfg->load_store_cpi);
-        printf("  MUL_RS_ROWS = %d\n", MUL_RS_ROWS);
-        printf("  DIV_RS_ROWS = %d\n", DIV_RS_ROWS);
-        printf("  ARITH_RS_ROWS = %d\n", ARITH_RS_ROWS);
-        printf("  LOAD_STORE_RS_ROWS = %d\n", LOAD_STORE_RS_ROWS);
-        printf("  REGISTERS_LEN = %d\n", REGISTERS_LEN);
-        printf("[CONFIG] Configuracoes carregada com sucesso com %d Erros\n\n", errors);
+        printf("  %-20s = %d\n", "MUL", cfg->mul_cpi);
+        printf("  %-20s = %d\n", "ADD", cfg->add_cpi);
+        printf("  %-20s = %d\n", "SUB", cfg->sub_cpi);
+        printf("  %-20s = %d\n", "DIV", cfg->div_cpi);
+        printf("  %-20s = %d\n", "LOAD_STORE", cfg->load_store_cpi);
+        printf("  %-20s = %d\n", "MUL_RS_ROWS", MUL_RS_ROWS);
+        printf("  %-20s = %d\n", "DIV_RS_ROWS", DIV_RS_ROWS);
+        printf("  %-20s = %d\n", "ARITH_RS_ROWS", ARITH_RS_ROWS);
+        printf("  %-20s = %d\n", "LOAD_STORE_RS_ROWS", LOAD_STORE_RS_ROWS);
+        printf("  %-20s = %d\n", "REGISTERS_LEN", REGISTERS_LEN);
+        printf("[CONFIG] Configurações carregadas com sucesso com %d erros\n\n", errors);
     }
 
     global_config = cfg;
@@ -509,7 +517,13 @@ static int parse_instruction_line(const char *line, Instruction *out)
     }
     else
     {
-        fprintf(stderr, "[Error] Instrucao invalida: %s\n", line);
+        fprintf(stderr, "[Error] Instrucao invalida: %s\n Tente remover espaços entre os operandos\n", line);
+        return 0;
+    }
+
+    if(ins.regs[0] == 0 && ins.op != STORE && ins.op != HALT && ins.op != NOP) 
+    {
+        fprintf(stderr, "[Error] Registrador destino nao pode ser r0 para instrução %s \n", line);
         return 0;
     }
 
@@ -540,7 +554,7 @@ Instruction *pub_load_instructions(void)
     if (!fp)
         PANIC("Error opening instructions file");
     int cap = 32, n = 0;
-    Instruction *arr = calloc(1,cap * sizeof(Instruction));
+    Instruction *arr = calloc(1, cap * sizeof(Instruction));
     if (!arr)
         PANIC("Memory allocation failed for instructions");
     char line[128];
@@ -578,6 +592,10 @@ static RegisterStatus *register_get(RegisterFile *self, int index)
         return NULL;
     return &self->registers[index];
 }
+/// @brief  Registra uma entrada do ROB no Register File
+/// @param self  ponteiro para o Register File
+/// @param index  índice do registrador a ser atualizado
+/// @param rob_entry  entrada do ROB a ser registrada
 static bool register_set_rob_entry(RegisterFile *self, int index, Entry rob_entry)
 {
     if (index >= self->size)
@@ -585,6 +603,11 @@ static bool register_set_rob_entry(RegisterFile *self, int index, Entry rob_entr
     self->registers[index].qi = rob_entry;
     return true;
 }
+/// @brief  Registra o valor de um registrador no Register File
+/// @param self  ponteiro para o Register File
+/// @param index  índice do registrador a ser atualizado
+/// @param rob_entry  entrada do ROB que escreveu o valor
+/// @param value  valor a ser registrado
 static bool register_commit_value(RegisterFile *self, int index, Entry rob_entry, double value)
 {
     if (index >= self->size)
@@ -594,8 +617,8 @@ static bool register_commit_value(RegisterFile *self, int index, Entry rob_entry
     }
     RegisterStatus *reg = &self->registers[index];
     if (reg->qi != rob_entry)
-    {
-        printf("Registrador nao escrito por esse ROB: entry %d != entry %d\n", reg->qi, rob_entry);
+    { //acontece quando o registrador foi escrito por outra instrucao
+        printf("[Dependency Resolved] Registrador nao sera escrito por esse ROB: entry %d != entry %d\n", reg->qi, rob_entry);
         return false;
     }
     reg->value = value;
@@ -609,11 +632,11 @@ static bool register_commit_value(RegisterFile *self, int index, Entry rob_entry
 /// @return ponteiro para o register file
 static RegisterFile *pub_create_register_file(int size)
 {
-    RegisterFile *regFile = calloc(1,sizeof(RegisterFile));
+    RegisterFile *regFile = calloc(1, sizeof(RegisterFile));
     if (!regFile)
         PANIC("Erro em alocacao para RegisterFile");
     regFile->size = size;
-    regFile->registers = (RegisterStatus *)calloc(1,size * sizeof(RegisterStatus));
+    regFile->registers = (RegisterStatus *)calloc(1, size * sizeof(RegisterStatus));
     if (!regFile->registers)
         PANIC("Erro em alocacao para RegisterStatus");
     for (int i = 0; i < size; i++)
@@ -669,7 +692,7 @@ static Instruction *queue_peek(InstructionQueue *self)
 static InstructionQueue *pub_create_queue(int size, Instruction *instructions)
 {
     int id = 0;
-    InstructionQueue *queue = calloc(1,sizeof *queue);
+    InstructionQueue *queue = calloc(1, sizeof *queue);
     if (!queue)
         PANIC("Erro em alocacao para InstructionQueue");
     queue->instructions = instructions;
@@ -701,7 +724,7 @@ static InstructionQueue *pub_create_queue(int size, Instruction *instructions)
 /// @return  ponteiro para o reorder buffer
 static ReorderBuffer *pub_create_reorder_buffer(int size)
 {
-    ReorderBuffer *rob = calloc(1,sizeof(ReorderBuffer));
+    ReorderBuffer *rob = calloc(1, sizeof(ReorderBuffer));
     if (!rob)
         PANIC("Erro ao alocar ReorderBuffer");
     rob->size = size;
@@ -753,6 +776,9 @@ Entry pub_reorder_buffer_insert(ReorderBuffer *rob, Instruction inst, int rs_tag
     return newEntry;
 }
 
+/// @brief  Libera uma linha da reserva station
+/// @param self  ponteiro para a reserva station
+/// @param row  linha a ser liberada
 void pub_reserve_station_free(ReserverStation *self, ReserveStationRow *row)
 {
     if (row->busy)
@@ -764,7 +790,7 @@ void pub_reserve_station_free(ReserverStation *self, ReserveStationRow *row)
         row->vk = 0;
         row->ROB_Entry = 0;
         row->A = 0;
-        row->op = HALT; // ou algum valor padrao invalido seguro
+        row->op = -1;
         self->busyLen--;
     }
 }
@@ -800,10 +826,10 @@ static bool pub_reorder_buffer_is_full(ReorderBuffer *rob)
     return rob->count >= rob->size;
 }
 
-/**
- * @brief Tenta commitar a instrucao mais antiga do reorder buffer
- * @return `true` se conseguiu commitar, `false` se nao havia nada para commitar
- */
+/// @brief  Tenta commitar a primeira linha do reorder buffer
+/// @param rob  referência para o reorder buffer
+/// @param regFile  referência para o Register File
+/// @param instructions  referência para o array de instruções
 static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
                                           RegisterFile *regFile,
                                           Instruction *instructions)
@@ -819,11 +845,10 @@ static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
 
     /* ─── 1. garante o espaçamento de um ciclo entre WR e Commit ─── */
     if (GLOBAL_CLOCK <= instructions[id].writeResult)
-        return false; /* Ainda não pode commitar */
+        return false; // Ainda não pode commitar
 
-    /* ─── 2. agora é seguro aplicar os efeitos arquiteturais ──── */
     if (head->inst.op == STORE)
-    {
+    { // caso especial para commit do store
         ram_store(&global_ram, head->mem_addr, head->value);
         printf("[Commit][STORE] end=%d valor=%f\n",
                head->mem_addr, head->value);
@@ -851,12 +876,12 @@ static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
 
 static ReserverStation *pub_create_reserve_station(int size)
 {
-    ReserverStation *station = calloc(1,sizeof *station);
+    ReserverStation *station = calloc(1, sizeof *station);
     if (!station)
         PANIC("Erro em alocacao para ReserveStation");
     station->size = size;
     station->busyLen = 0;
-    station->rows = calloc(1,size * sizeof(ReserveStationRow));
+    station->rows = calloc(1, size * sizeof(ReserveStationRow));
     if (!station->rows)
         PANIC("Erro em alocacao para ReserveStationRow");
     for (int i = 0; i < size; i++)
@@ -880,152 +905,201 @@ static inline void handle_immediate(const Instruction *inst,
     }
 }
 
+/**
+ * @brief  Insere uma instrução na estação de reserva apropriada.
+ *
+ * @param  self       Ponteiro para a estação de reserva (ReserverStation).
+ * @param  instruction  Instrução a ser adicionada.
+ * @param  regFile    Ponteiro para o arquivo de registradores (RegisterFile).
+ * @param  rob        Ponteiro para o Reorder Buffer (ReorderBuffer).
+ * @param  robEntry   Identificador da entrada correspondente no ROB.
+ *
+ * @return Índice da linha utilizada dentro da estação de reserva.
+ */
 static int pub_reserve_station_add_instruction(ReserverStation *self,
-                                               Instruction inst,
-                                               RegisterFile *regFile,
-                                               ReorderBuffer *rob,
-                                               Entry rob_entry)
+                                    Instruction instruction,
+                                    RegisterFile *regFile,
+                                    ReorderBuffer *rob,
+                                    Entry robEntry)
 {
-    int slot = self->size;
-    for (int i = 0; i < self->size; ++i)
-    {
-        if (!self->rows[i].busy)
-        {
-            slot = i;
+    /* Busca por uma linha livre na estação de reserva */
+    int freeSlot = self->size;
+    for (int i = 0; i < self->size; ++i) {
+        if (!self->rows[i].busy) {
+            freeSlot = i;
             break;
         }
     }
-    if (slot == self->size)
-    {
-        PANIC("ReserveStation sem espaco");
+
+    if (freeSlot == self->size) {
+        /* Nenhuma linha livre disponível */
+        PANIC("ReserveStation sem espaço");
     }
-    ReserveStationRow *row = &self->rows[slot];
-    row->busy = true;
-    row->op = inst.op;
-    row->ROB_Entry = rob_entry;
 
-    switch (inst.op)
-    {
-    case LI:
-        row->vj = inst.regs[1];
-        row->qj = 0;
-        row->vk = 0;
-        row->qk = 0;
-        break;
+    /* Ponteiro para a linha escolhida */
+    ReserveStationRow *rsRow = &self->rows[freeSlot];
+    rsRow->busy      = true;                 // marca a linha como ocupada
+    rsRow->op        = instruction.op;       // operação da instrução (ADD, SUB, LOAD, etc.)
+    rsRow->ROB_Entry = robEntry;             // índice da entrada no Reorder Buffer
 
-    case LOAD:
-    {
-        RegisterStatus *rs = regFile->get(regFile, inst.regs[1]);
-        if (rs->qi == 0)
-        {
-            row->vj = rs->value; // base
-            row->qj = 0;
-        }
-        else
-        {
-            row->qj = rs->qi;
-        }
-    }
-        row->A = inst.regs[2];
-        row->vk = 0;
-        row->qk = 0;
-        break;
+    switch (instruction.op) {
+        case LI:
+            rsRow->vj = instruction.regs[1];  // imediato
+            rsRow->qj = 0;                    // não depende de ROB
+            rsRow->vk = 0;                    // não utiliza vk/qk
+            rsRow->qk = 0;
+            break;
 
-    case STORE:
-    {
-        /* --- registrador base (endereco) --- */
-        RegisterStatus *base = regFile->get(regFile, inst.regs[1]);
-        if (base->qi == 0)
+        case LOAD:
         {
-            row->vk = base->value;
-            row->qk = 0;
-        }
-        else
-        {
-            row->qk = base->qi;
-        }
+            /*
+             * LOAD rd, offset(base)
+             * Calcula endereço efetivo: base + offset.
+             * tratar dependência de 'base' para obter vj/qj.
+             */
+            int baseReg = instruction.regs[1];
+            RegisterStatus *baseStatus = regFile->get(regFile, baseReg);
 
-        /* --- registrador fonte (valor a gravar) --- */
-        RegisterStatus *src = regFile->get(regFile, inst.regs[0]);
-        if (src->qi == 0)
-        { /* valor ja no RF */
-            row->vj = src->value;
-            row->qj = 0;
-        }
-        else
-        {
-            Entry dep = src->qi; /* produtor ainda no ROB */
-            ReorderBufferRow *depRow = &rob->rows[dep];
-            if (depRow->busy && depRow->state == ROB_WRITE_RESULT)
-            {
-                /* produtor ja terminou — pegue o valor imediatamente  */
-                row->vj = depRow->value;
-                row->qj = 0;
-            }
-            else
-            {
-                row->qj = dep; /* aguarde broadcast    */
-            }
-        }
+            if (baseStatus->qi == 0) {
+                // O registrador base já contém valor válido
+                rsRow->vj = baseStatus->value;
+                rsRow->qj = 0;
+            } else {
+                // Há uma dependência: a instrução produtora está no ROB
+                Entry producerEntry = baseStatus->qi;
+                ReorderBufferRow *producerRow = &rob->rows[producerEntry];
 
-        row->A = inst.regs[2]; /* offset imediato */
-    }
-    break;
-    default:
-    {
-        RegisterStatus *rs = regFile->get(regFile, inst.regs[1]);
-        if (rs->qi == 0)
-        {
-            row->vj = rs->value;
-            row->qj = 0;
-        }
-        else
-        {
-            Entry dep = rs->qi;
-            ReorderBufferRow *depRow = &rob->rows[dep];
-            if (depRow->busy && depRow->state == ROB_WRITE_RESULT)
-            {
-                row->vj = depRow->value;
-                row->qj = 0;
-            }
-            else
-            {
-                row->qj = dep;
-            }
-        }
-    }
-        {
-            RegisterStatus *rt = regFile->get(regFile, inst.regs[2]);
-            if (rt->qi == 0)
-            {
-                row->vk = rt->value;
-                row->qk = 0;
-            }
-            else
-            {
-                Entry dep = rt->qi;
-                ReorderBufferRow *depRow = &rob->rows[dep];
-                if (depRow->busy && depRow->state == ROB_WRITE_RESULT)
-                {
-                    row->vk = depRow->value;
-                    row->qk = 0;
-                }
-                else
-                {
-                    row->qk = dep;
+                if (producerRow->busy && producerRow->state == ROB_WRITE_RESULT) {
+                    // O produtor já gravou o resultado: faz forwarding imediato
+                    rsRow->vj = producerRow->value;
+                    rsRow->qj = 0;
+                } else {
+                    // Enquanto não houver resultado, registra tag para aguardar broadcast
+                    rsRow->qj = producerEntry;
                 }
             }
+
+            rsRow->A  = instruction.regs[2];  // offset imediato
+            rsRow->vk = 0;                     // não utiliza vk/qk para LOAD
+            rsRow->qk = 0;
+        }
+        break;
+
+        case STORE:
+        {
+            /*
+             * STORE src, offset(base)
+             * tratar:
+             *  - registrador base (para obter endereço: vk/qk)
+             *  - registrador fonte (valor a ser armazenado: vj/qj)
+             */
+            int baseReg  = instruction.regs[1];
+            int srcReg   = instruction.regs[0];
+            int offset   = instruction.regs[2];
+
+            /*--- Tratamento do registrador base (endereço) ---*/
+            RegisterStatus *baseStatus = regFile->get(regFile, baseReg);
+            if (baseStatus->qi == 0) {
+                // Base já contém valor válido
+                rsRow->vk = baseStatus->value;
+                rsRow->qk = 0;
+            } else {
+                // Dependência: produtor está no ROB
+                rsRow->qk = baseStatus->qi;
+            }
+
+            /*--- Tratamento do registrador fonte (valor a ser armazenado) ---*/
+            RegisterStatus *srcStatus = regFile->get(regFile, srcReg);
+            if (srcStatus->qi == 0) {
+                // Valor fonte já disponível
+                rsRow->vj = srcStatus->value;
+                rsRow->qj = 0;
+            } else {
+                // Dependência: aguarda broadcast do produtor
+                Entry producerEntry = srcStatus->qi;
+                ReorderBufferRow *producerRow = &rob->rows[producerEntry];
+
+                if (producerRow->busy && producerRow->state == ROB_WRITE_RESULT) {
+                    // Produtor já escreveu resultado: forwarding imediato
+                    rsRow->vj = producerRow->value;
+                    rsRow->qj = 0;
+                } else {
+                    // Ainda não chegou o resultado: guarda tag
+                    rsRow->qj = producerEntry;
+                }
+            }
+
+            rsRow->A = offset;  // offset imediato
+        }
+        break;
+
+        default:
+        {
+            /*
+             * Operações aritméticas (ADD, SUB, MUL, DIV, etc.):
+             * tratar dois operandos:
+             *  - registrador rs → vj/qj
+             *  - registrador rt → vk/qk
+             */
+            int regRs = instruction.regs[1];
+            int regRt = instruction.regs[2];
+
+            /*--- Operando rs (vj/qj) ---*/
+            RegisterStatus *rsStatus = regFile->get(regFile, regRs);
+            if (rsStatus->qi == 0) {
+                // Já possui valor válido
+                rsRow->vj = rsStatus->value;
+                rsRow->qj = 0;
+            } else {
+                // Dependência: origem no ROB
+                Entry producerEntry = rsStatus->qi;
+                ReorderBufferRow *producerRow = &rob->rows[producerEntry];
+
+                if (producerRow->busy && producerRow->state == ROB_WRITE_RESULT) {
+                    // Forwarding imediato
+                    rsRow->vj = producerRow->value;
+                    rsRow->qj = 0;
+                } else {
+                    // Aguardando broadcast
+                    rsRow->qj = producerEntry;
+                }
+            }
+
+            /*--- Operando rt (vk/qk) ---*/
+            RegisterStatus *rtStatus = regFile->get(regFile, regRt);
+            if (rtStatus->qi == 0) {
+                // Já possui valor válido
+                rsRow->vk = rtStatus->value;
+                rsRow->qk = 0;
+            } else {
+                // Dependência: origem no ROB
+                Entry producerEntry = rtStatus->qi;
+                ReorderBufferRow *producerRow = &rob->rows[producerEntry];
+
+                if (producerRow->busy && producerRow->state == ROB_WRITE_RESULT) {
+                    // Forwarding imediato
+                    rsRow->vk = producerRow->value;
+                    rsRow->qk = 0;
+                } else {
+                    // Aguardando broadcast
+                    rsRow->qk = producerEntry;
+                }
+            }
         }
         break;
     }
 
-    if (inst.op != STORE)
-        regFile->set_rob_entry(regFile, inst.regs[0], rob_entry);
+    /* Se não for STORE, atualiza a tag QI do registrador destino (rd) */
+    if (instruction.op != STORE) {
+        regFile->set_rob_entry(regFile,
+                               instruction.regs[0],  // registrador destino
+                               robEntry);
+    }
 
-    self->busyLen++;
-
-    return slot;
+    self->busyLen++;  // incrementa contagem de estações ocupadas
+    return freeSlot;
 }
+
 
 /// @brief  Atualiza o valor dos operandos da linha da estacao de reserva
 /// @param self  ponteiro para a estacao de reserva
@@ -1064,7 +1138,7 @@ static ReserveStationRow **pub_reserve_station_get_ready_filtered(ReserverStatio
                                                                   int *out_count) // remover
 {
     int cap = self->busyLen;
-    ReserveStationRow **ready = calloc(1,cap * sizeof(ReserveStationRow *));
+    ReserveStationRow **ready = calloc(1, cap * sizeof(ReserveStationRow *));
     int cnt = 0;
 
     for (int i = 0; i < self->size; i++)
@@ -1092,20 +1166,7 @@ static ReserveStationRow **pub_reserve_station_get_ready_filtered(ReserverStatio
 
     *out_count = cnt;
 
-    // printf("[RS] Encontrou %d instrucões prontas filtradas\n", cnt);
-    // for (int i = 0; i < cnt; i++)
-    // {
-    //     ReserveStationRow *row = ready[i];
-    //     printf("[RS] %d: %s | vj=%f vk=%f\n", row->dest, op_to_str(row->op), row->vj, row->vk);
-    // }
-    // puts("");
-
     return ready;
-}
-
-static bool pub_has_free_space(ReserverStation *self)
-{
-    return self->busyLen < self->size;
 }
 
 /* Unidade Funcional */
@@ -1124,20 +1185,20 @@ static bool uf_instruction_buffer_available(FunctionalUnit *self, Operation op)
     case SUB:
     case LI:
         buf = self->arith_units;
-        cnt = global_config->add_cpi;
+        cnt = ARITH_UF_ROWS;
         break;
     case MUL:
         buf = self->mul_units;
-        cnt = global_config->mul_cpi;
+        cnt = MUL_UF_ROWS;
         break;
     case DIV:
         buf = self->div_units;
-        cnt = global_config->div_cpi;
+        cnt = DIV_UF_ROWS;
         break;
     case LOAD:
     case STORE:
         buf = self->load_store_units;
-        cnt = global_config->load_store_cpi;
+        cnt = LOAD_STORE_UF_ROWS;
         break;
     default:
         PANIC("Operacao desconhecida para UF");
@@ -1162,20 +1223,20 @@ static bool uf_push(FunctionalUnit *self, ReserveStationRow row)
     case SUB:
     case LI:
         buf = self->arith_units;
-        cnt = global_config->add_cpi;
+        cnt = ARITH_UF_ROWS;
         break;
     case MUL:
         buf = self->mul_units;
-        cnt = global_config->mul_cpi;
+        cnt = MUL_UF_ROWS;
         break;
     case DIV:
         buf = self->div_units;
-        cnt = global_config->div_cpi;
+        cnt = DIV_UF_ROWS;
         break;
     case LOAD:
     case STORE:
         buf = self->load_store_units;
-        cnt = global_config->load_store_cpi;
+        cnt = LOAD_STORE_UF_ROWS;
         break;
     default:
         return false;
@@ -1290,7 +1351,7 @@ StoreHazard check_store_hazard(Entry loadEntry,
 /// @brief  Executa 1 tick em todas as unidades funcionais
 /// @param self ponteiro para a unidade funcional
 /// @return um Broadcast com o resultado da execucao
-static Broadcast *uf_tick(FunctionalUnit *self)
+Broadcast *uf_tick(FunctionalUnit *self)
 {
     static Broadcast bd_out[100];
     int len = 0;
@@ -1300,10 +1361,12 @@ static Broadcast *uf_tick(FunctionalUnit *self)
                         self->div_units,
                         self->load_store_units};
 
-    int limits[] = {global_config->add_cpi,
-                    global_config->mul_cpi,
-                    global_config->div_cpi,
-                    global_config->load_store_cpi};
+    int limits[] = {
+        ARITH_UF_ROWS,
+        MUL_UF_ROWS,
+        DIV_UF_ROWS,
+        LOAD_STORE_UF_ROWS
+    };
 
     for (int g = 0; g < 4; ++g)
     {
@@ -1353,6 +1416,8 @@ static Broadcast *uf_tick(FunctionalUnit *self)
 
                 if (sh == WAIT_STORE)
                 {
+                    printf("[LOAD] addr=%d  (WAIT_STORE) via ROB[%d]\n",
+                           addr, t->row.ROB_Entry);
                     /* Stall: não libera a unidade, nem faz broadcast */
                     continue;
                 }
@@ -1397,7 +1462,7 @@ static Broadcast *uf_tick(FunctionalUnit *self)
                 storeROB->value = t->row.vj;
 
                 /* Estado do ROB do STORE deve mudar para WRITE_RESULT */
-                // storeROB->state = ROB_WRITE_RESULT;
+                storeROB->state = ROB_WRITE_RESULT;
 
                 /* broadcast “dummy” (o valor não interessa tanto,
                  *  mas libera filas de espera que chequem mem_addr) */
@@ -1427,19 +1492,19 @@ static Broadcast *uf_tick(FunctionalUnit *self)
 /// @return  ponteiro para a unidade funcional
 static FunctionalUnit *pub_create_functional_unit(void)
 {
-    FunctionalUnit *uf = calloc(1,sizeof *uf);
+    FunctionalUnit *uf = calloc(1, sizeof *uf);
     if (!uf)
         PANIC("Erro ao alocar FunctionalUnit");
 
-    uf->arith_units = calloc(1,global_config->add_cpi * sizeof(UFTask));
-    uf->mul_units = calloc(1,global_config->mul_cpi * sizeof(UFTask));
-    uf->div_units = calloc(1,global_config->div_cpi * sizeof(UFTask));
-    uf->load_store_units = calloc(1,global_config->load_store_cpi * sizeof(UFTask));
+    uf->arith_units = calloc(1, ARITH_UF_ROWS * sizeof(UFTask));
+    uf->mul_units = calloc(1, MUL_UF_ROWS * sizeof(UFTask));
+    uf->div_units = calloc(1, DIV * sizeof(UFTask));
+    uf->load_store_units = calloc(1, LOAD_STORE_UF_ROWS * sizeof(UFTask));
     // zerar
-    memset(uf->arith_units, 0, global_config->add_cpi * sizeof(UFTask));
-    memset(uf->mul_units, 0, global_config->mul_cpi * sizeof(UFTask));
-    memset(uf->div_units, 0, global_config->div_cpi * sizeof(UFTask));
-    memset(uf->load_store_units, 0, global_config->load_store_cpi * sizeof(UFTask));
+    memset(uf->arith_units, 0, ARITH_UF_ROWS * sizeof(UFTask));
+    memset(uf->mul_units, 0, MUL_UF_ROWS * sizeof(UFTask));
+    memset(uf->div_units, 0,DIV_UF_ROWS * sizeof(UFTask));
+    memset(uf->load_store_units, 0, LOAD_STORE_UF_ROWS * sizeof(UFTask));
 
     // Cria UFs
 
@@ -1478,7 +1543,7 @@ char *rob_state_to_str(ROBState state)
 static bool uf_is_idle(FunctionalUnit *uf)
 {
     UFTask *all[] = {uf->arith_units, uf->mul_units, uf->div_units, uf->load_store_units};
-    int sz[] = {global_config->add_cpi, global_config->mul_cpi, global_config->div_cpi, global_config->load_store_cpi};
+    int sz[] = {ARITH_UF_ROWS, MUL_UF_ROWS, DIV_UF_ROWS, LOAD_STORE_UF_ROWS};
     for (int g = 0; g < 4; g++)
         for (int i = 0; i < sz[g]; i++)
             if (all[g][i].active)
@@ -1576,25 +1641,26 @@ void printReserveStation(ReserverStation *rs, const char *name)
 void printFunctionalUnit(FunctionalUnit *uf)
 {
     printf("[FunctionalUnit PRINT]  --------\n");
-    for (int i = 0; i < global_config->add_cpi; i++)
+    printf("\n-----Arithmetic Units (%d)-----\n", ARITH_UF_ROWS);
+    for (int i = 0; i < ARITH_UF_ROWS; i++)
     {
 
         printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->arith_units[i].row.op), uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
     }
-
-    for (int i = 0; i < global_config->mul_cpi; i++)
+    printf("\n\n-----MUL Units (%d)-----\n",MUL_UF_ROWS);
+    for (int i = 0; i < MUL_UF_ROWS; i++)
     {
 
         printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->mul_units[i].row.op), uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
-    }
-
-    for (int i = 0; i < global_config->div_cpi; i++)
+    }  
+    printf("\n\n-----DIV Units (%d)-----\n", DIV_UF_ROWS);
+    for (int i = 0; i < DIV_UF_ROWS; i++)
     {
 
         printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->div_units[i].row.op), uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
     }
-
-    for (int i = 0; i < global_config->load_store_cpi; i++)
+    printf("\n\n-----Load/Store Units (%d)-----\n", LOAD_STORE_UF_ROWS);
+    for (int i = 0; i < LOAD_STORE_UF_ROWS; i++)
     {
 
         printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->load_store_units[i].row.op), uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
@@ -1602,7 +1668,6 @@ void printFunctionalUnit(FunctionalUnit *uf)
 
     printf("\n");
 }
-
 /* main.c */
 
 int main()
@@ -1633,7 +1698,7 @@ int main()
 
         // EXECUTE - Unidade Aritmetica (ADD, SUB, LI)
 
-        for (int i = 0; i < global_config->add_cpi; i++)
+        for (int i = 0; i < ARITH_UF_ROWS; i++)
         { // para toda unidade funcional aritmética
             UFTask *task = &functional_unit->arith_units[i];
             if (task->active) // se a unidade nao estiver ocupada
@@ -1663,7 +1728,7 @@ int main()
         }
 
         // EXECUTE - Unidade MUL
-        for (int i = 0; i < global_config->mul_cpi; i++)
+        for (int i = 0; i < MUL_UF_ROWS; i++)
         {
             UFTask *task = &functional_unit->mul_units[i];
             if (!task->active)
@@ -1693,7 +1758,7 @@ int main()
 
         // EXECUTE - Unidade DIV
         //  puts("[Execute] Executando DIV");
-        for (int i = 0; i < global_config->div_cpi; i++)
+        for (int i = 0; i < DIV_UF_ROWS; i++)
         {
             UFTask *task = &functional_unit->div_units[i];
             if (!task->active)
@@ -1722,7 +1787,7 @@ int main()
 
         // EXECUTE - Unidade LOAD/STORE
         // puts("[Execute] Executando LOAD/STORE");
-        for (int i = 0; i < global_config->load_store_cpi; i++)
+        for (int i = 0; i < LOAD_STORE_UF_ROWS; i++)
         {
             UFTask *task = &functional_unit->load_store_units[i];
             if (!task->active)
@@ -1852,6 +1917,11 @@ int main()
         printRegisterFile(register_file);
 
         puts("-----------------------------------------------------------------------------------------------------\n\n");
+        if (GLOBAL_CLOCK > 30)
+        {
+            puts("[Tomasulo] Simulador finalizado por limite de ciclos.");
+            break;
+        }
     }
 
     printRegisterFile(register_file);

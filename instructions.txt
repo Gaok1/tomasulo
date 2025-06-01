@@ -1,29 +1,59 @@
+# Arquivo de instruções para testar todos os tipos de hazards
+# Formato: <Op> <r1>,<r2>,<r3> ou para load/store: <Op> <r>,<offset>(<r>)
 
-li r1, 99
-li r2, 0   
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Inicialização de valores
+li r1,10
+li r2,20
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. RAW (True Dependency) entre registradores
+add r3,r1,r2      # r3 = r1 + r2
+sub r4,r3,r1      # r4 depende de r3 calculado acima (RAW on r3)
+mul r5,r4,r2      # r5 depende de r4 (RAW on r4)
 
-store r1,0(r2)
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. WAW (Write After Write) no mesmo registrador
+li  r6,5         # r6 = 5
+add r6,r1,r2     # r6 = r1 + r2  (escreve em r6 novamente antes de ler o anterior)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. WAR (Write After Read) – escreve em um registrador que uma instrução anterior lê
+add r7,r1,r2     # r7 = r1 + r2   (lê r1, r2)
+sub r1,r3,r4     # r1 = r3 - r4   (escreve em r1, mas r1 foi lido acima: WAR)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Sequência de diferentes sobrescritas (WAW múltiplos)
+li  r3,100       # r3 = 100
+add r3,r3,r1     # r3 = r3 + r1   (WAW em r3)
+sub r3,r3,r2     # r3 = r3 - r2   (novamente WAW em r3)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Dependencies encadeadas
+mul r8,r3,r5     # r8 depende do último valor escrito em r3 e em r5
+div r9,r8,r6     # r9 depende de r8 e r6
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Teste de LOAD/STORE com RAW de memória
+store r9,0(r0)   # Mem[0] = r9
+load  r10,0(r0)  # r10 = Mem[0]  (depende do STORE anterior)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. False memory dependency (endereços diferentes => não há hazard real)
+store r11,4(r0)  # Mem[4] = r11
+load  r12,8(r0)  # r12 = Mem[8]  (acesso em endereço diferente)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Memory WAW (duas stores no mesmo endereço)
+store r13,12(r0) # Mem[12] = r13
+store r14,12(r0) # Mem[12] = r14  (WAW de memória)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. Memory WAR (uma load antes de uma store no mesmo endereço)
+load  r15,16(r0) # r15 = Mem[16]  (lê antes de sobrescrever)
+store r15,16(r0) # Mem[16] = r15  (WRITE após leitura: WAR de memória)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. Instruções NOP e HALT de encerramento
 nop
-load r3,0(r2)
-nop
-
-
-store r1, 1(r2)
-nop
-load r3, 1(r2)
-nop
-
-
-store r1, 2(r2)
-nop
-load r3, 2(r2)
-nop
-
-
-store r1, 3(r2)
-nop
-load r3, 3(r2)
-nop
-
 halt
