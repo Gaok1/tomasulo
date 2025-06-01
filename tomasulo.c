@@ -1917,11 +1917,11 @@ int main()
         printRegisterFile(register_file);
 
         puts("-----------------------------------------------------------------------------------------------------\n\n");
-        if (GLOBAL_CLOCK > 30)
-        {
-            puts("[Tomasulo] Simulador finalizado por limite de ciclos.");
-            break;
-        }
+        // if (GLOBAL_CLOCK > 30)
+        // {
+        //     puts("[Tomasulo] Simulador finalizado por limite de ciclos.");
+        //     break;
+        // }
     }
 
     printRegisterFile(register_file);
