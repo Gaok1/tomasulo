@@ -9,8 +9,7 @@ int MUL_RS_ROWS = 2;
 int DIV_RS_ROWS = 2;
 int ARITH_RS_ROWS = 3;
 int LOAD_STORE_RS_ROWS = 4;
-
-#define REGISTERS_LEN 8
+int REGISTERS_LEN = 8;
 
 /// @brief reorder buffer entry
 typedef int Entry;
@@ -276,11 +275,10 @@ static inline const char *op_to_str(Operation op)
 void pub_start_config()
 {
     FILE *fp = fopen(CONFIG_FILE, "r");
-    Config *cfg = malloc(sizeof *cfg);
+    Config *cfg = calloc(1,sizeof *cfg);
     if (!cfg)
     {
-        fprintf(stderr, "Erro em alocacao para Config\n");
-        exit(EXIT_FAILURE);
+        PANIC("Erro ao alocar Config");
     }
     // valores default
     cfg->mul_cpi = CPI_DEFAULT;
@@ -305,7 +303,7 @@ void pub_start_config()
 
             char key[16];
             int value;
-            if (sscanf(line, " %15[^: ] : %d", key, &value) == 2)
+            if (sscanf(line, " %35[^: ] : %d", key, &value) == 2)
             {
                 if (strcmp(key, "CPI.MUL") == 0)
                 {
@@ -343,6 +341,10 @@ void pub_start_config()
                     LOAD_STORE_RS_ROWS = value;
                     printf("[CONFIG] LOAD_STORE_RS_ROWS set to %d\n", LOAD_STORE_RS_ROWS);
                 }
+                else if (strcmp(key, "REGISTERS") == 0){
+                    REGISTERS_LEN = value;
+                    printf("[CONFIG] REGISTERS_LEN set to %d\n", REGISTERS_LEN);
+                }
                 else
                 {
                     printf("[CONFIG] ignorando chave desconhecida: \"%s\"\n", key);
@@ -356,7 +358,7 @@ void pub_start_config()
             }
         }
         fclose(fp);
-
+        puts("\n\n");
         // resumo final
         printf("[CONFIG] resultados finais:\n");
         printf("  MUL         = %d\n", cfg->mul_cpi);
@@ -368,6 +370,7 @@ void pub_start_config()
         printf("  DIV_RS_ROWS = %d\n", DIV_RS_ROWS);
         printf("  ARITH_RS_ROWS = %d\n", ARITH_RS_ROWS);
         printf("  LOAD_STORE_RS_ROWS = %d\n", LOAD_STORE_RS_ROWS);
+        printf("  REGISTERS_LEN = %d\n", REGISTERS_LEN);
         printf("[CONFIG] Configuracoes carregada com sucesso com %d Erros\n\n", errors);
     }
 
@@ -378,7 +381,6 @@ void pub_start_config()
 
 double ram_load(RAM *ram, int addr)
 {
-    fprintf(stderr, "[RAM] Carregando valor %lf do endereco %d\n", ram->data[addr], addr);
     if (addr < 0 || addr >= ram->size)
     {
         printf("[RAM] Endereco invalido: %d\n", addr);
@@ -389,7 +391,6 @@ double ram_load(RAM *ram, int addr)
 
 void ram_store(RAM *ram, int addr, double value)
 {
-    fprintf(stderr, "[RAM] Storando valor %lf do endereco %d\n", value, addr);
     if (addr < 0 || addr >= ram->size)
     {
         printf("[RAM] Endereco invalido para store: %d\n", addr);
@@ -539,7 +540,7 @@ Instruction *pub_load_instructions(void)
     if (!fp)
         PANIC("Error opening instructions file");
     int cap = 32, n = 0;
-    Instruction *arr = malloc(cap * sizeof(Instruction));
+    Instruction *arr = calloc(1,cap * sizeof(Instruction));
     if (!arr)
         PANIC("Memory allocation failed for instructions");
     char line[128];
@@ -608,11 +609,11 @@ static bool register_commit_value(RegisterFile *self, int index, Entry rob_entry
 /// @return ponteiro para o register file
 static RegisterFile *pub_create_register_file(int size)
 {
-    RegisterFile *regFile = malloc(sizeof(RegisterFile));
+    RegisterFile *regFile = calloc(1,sizeof(RegisterFile));
     if (!regFile)
         PANIC("Erro em alocacao para RegisterFile");
     regFile->size = size;
-    regFile->registers = (RegisterStatus *)malloc(size * sizeof(RegisterStatus));
+    regFile->registers = (RegisterStatus *)calloc(1,size * sizeof(RegisterStatus));
     if (!regFile->registers)
         PANIC("Erro em alocacao para RegisterStatus");
     for (int i = 0; i < size; i++)
@@ -668,7 +669,7 @@ static Instruction *queue_peek(InstructionQueue *self)
 static InstructionQueue *pub_create_queue(int size, Instruction *instructions)
 {
     int id = 0;
-    InstructionQueue *queue = malloc(sizeof *queue);
+    InstructionQueue *queue = calloc(1,sizeof *queue);
     if (!queue)
         PANIC("Erro em alocacao para InstructionQueue");
     queue->instructions = instructions;
@@ -700,7 +701,7 @@ static InstructionQueue *pub_create_queue(int size, Instruction *instructions)
 /// @return  ponteiro para o reorder buffer
 static ReorderBuffer *pub_create_reorder_buffer(int size)
 {
-    ReorderBuffer *rob = malloc(sizeof(ReorderBuffer));
+    ReorderBuffer *rob = calloc(1,sizeof(ReorderBuffer));
     if (!rob)
         PANIC("Erro ao alocar ReorderBuffer");
     rob->size = size;
@@ -789,7 +790,6 @@ static void pub_reorder_buffer_listen_broadcast(ReorderBuffer *rob,
     row->state = ROB_WRITE_RESULT;
 }
 
-
 /// @brief checa se ha espaco no reorder buffer
 /// @param rob ponteiro para o reorder buffer
 /// @return `true` se o reorder buffer estiver cheio,
@@ -851,12 +851,12 @@ static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
 
 static ReserverStation *pub_create_reserve_station(int size)
 {
-    ReserverStation *station = malloc(sizeof *station);
+    ReserverStation *station = calloc(1,sizeof *station);
     if (!station)
         PANIC("Erro em alocacao para ReserveStation");
     station->size = size;
     station->busyLen = 0;
-    station->rows = malloc(size * sizeof(ReserveStationRow));
+    station->rows = calloc(1,size * sizeof(ReserveStationRow));
     if (!station->rows)
         PANIC("Erro em alocacao para ReserveStationRow");
     for (int i = 0; i < size; i++)
@@ -1064,7 +1064,7 @@ static ReserveStationRow **pub_reserve_station_get_ready_filtered(ReserverStatio
                                                                   int *out_count) // remover
 {
     int cap = self->busyLen;
-    ReserveStationRow **ready = malloc(cap * sizeof(ReserveStationRow *));
+    ReserveStationRow **ready = calloc(1,cap * sizeof(ReserveStationRow *));
     int cnt = 0;
 
     for (int i = 0; i < self->size; i++)
@@ -1427,14 +1427,14 @@ static Broadcast *uf_tick(FunctionalUnit *self)
 /// @return  ponteiro para a unidade funcional
 static FunctionalUnit *pub_create_functional_unit(void)
 {
-    FunctionalUnit *uf = malloc(sizeof *uf);
+    FunctionalUnit *uf = calloc(1,sizeof *uf);
     if (!uf)
         PANIC("Erro ao alocar FunctionalUnit");
 
-    uf->arith_units = malloc(global_config->add_cpi * sizeof(UFTask));
-    uf->mul_units = malloc(global_config->mul_cpi * sizeof(UFTask));
-    uf->div_units = malloc(global_config->div_cpi * sizeof(UFTask));
-    uf->load_store_units = malloc(global_config->load_store_cpi * sizeof(UFTask));
+    uf->arith_units = calloc(1,global_config->add_cpi * sizeof(UFTask));
+    uf->mul_units = calloc(1,global_config->mul_cpi * sizeof(UFTask));
+    uf->div_units = calloc(1,global_config->div_cpi * sizeof(UFTask));
+    uf->load_store_units = calloc(1,global_config->load_store_cpi * sizeof(UFTask));
     // zerar
     memset(uf->arith_units, 0, global_config->add_cpi * sizeof(UFTask));
     memset(uf->mul_units, 0, global_config->mul_cpi * sizeof(UFTask));
@@ -1557,20 +1557,18 @@ void printReserveStation(ReserverStation *rs, const char *name)
     for (int i = 0; i < rs->size; i++)
     {
         ReserveStationRow *row = &rs->rows[i];
-        if (row->busy)
-        {
-            printf(
-                "%4d |  %c   | %-5s | %10.4f | %10.4f | %3d | %3d | %4d | %4d\n",
-                i,
-                row->busy ? 'Y' : 'N',
-                op_to_str(row->op),
-                row->vj,
-                row->vk,
-                row->qj,
-                row->qk,
-                row->ROB_Entry,
-                row->A);
-        }
+
+        printf(
+            "%4d |  %c   | %-5s | %10.4f | %10.4f | %3d | %3d | %4d | %4d\n",
+            i,
+            row->busy ? 'Y' : 'N',
+            op_to_str(row->op),
+            row->vj,
+            row->vk,
+            row->qj,
+            row->qk,
+            row->ROB_Entry,
+            row->A);
     }
     printf("\n");
 }
@@ -1580,34 +1578,26 @@ void printFunctionalUnit(FunctionalUnit *uf)
     printf("[FunctionalUnit PRINT]  --------\n");
     for (int i = 0; i < global_config->add_cpi; i++)
     {
-        if (uf->arith_units[i].active)
-        {
-            printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->arith_units[i].row.op), uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
-        }
+
+        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->arith_units[i].row.op), uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
     }
 
     for (int i = 0; i < global_config->mul_cpi; i++)
     {
-        if (uf->mul_units[i].active)
-        {
-            printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->mul_units[i].row.op), uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
-        }
+
+        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->mul_units[i].row.op), uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
     }
 
     for (int i = 0; i < global_config->div_cpi; i++)
     {
-        if (uf->div_units[i].active)
-        {
-            printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->div_units[i].row.op), uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
-        }
+
+        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->div_units[i].row.op), uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
     }
 
     for (int i = 0; i < global_config->load_store_cpi; i++)
     {
-        if (uf->load_store_units[i].active)
-        {
-            printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->load_store_units[i].row.op), uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
-        }
+
+        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->load_store_units[i].row.op), uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
     }
 
     printf("\n");
@@ -1650,27 +1640,26 @@ int main()
             {
                 continue;
             }
-                ReserverStation *rs = functional_unit->arith_rs;
-                int ready_count = 0;
-                ReserveStationRow **ready = pub_reserve_station_get_ready_filtered(rs, arith_ops, 3, &ready_count);
-                for (int j = 0; j < ready_count; j++)
-                { // para cada instrucao pronta
-                    if (functional_unit->instruction_buffer_available(functional_unit, ready[j]->op))
+            ReserverStation *rs = functional_unit->arith_rs;
+            int ready_count = 0;
+            ReserveStationRow **ready = pub_reserve_station_get_ready_filtered(rs, arith_ops, 3, &ready_count);
+            for (int j = 0; j < ready_count; j++)
+            { // para cada instrucao pronta
+                if (functional_unit->instruction_buffer_available(functional_unit, ready[j]->op))
+                {
+                    if (functional_unit->push(functional_unit, *ready[j])) // se a instrucao da RS for efetivada na UF
                     {
-                        if (functional_unit->push(functional_unit, *ready[j])) // se a instrucao da RS for efetivada na UF
-                        {
-                            // adiciona
-                            reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
-                            printf("[Execute] Enviado ROB.RobEntry = %d\n", ready[j]->ROB_Entry);
-                            int inst_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
-                            instructions[inst_id].execution[0] = GLOBAL_CLOCK;
-                            pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
-                            break;                                  // só dispara 1 por ciclo por unidade
-                        }
+                        // adiciona
+                        reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
+                        printf("[Execute] Enviado ROB.RobEntry = %d\n", ready[j]->ROB_Entry);
+                        int inst_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
+                        instructions[inst_id].execution[0] = GLOBAL_CLOCK;
+                        pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
+                        break;                                  // só dispara 1 por ciclo por unidade
                     }
                 }
-                free(ready);
-            
+            }
+            free(ready);
         }
 
         // EXECUTE - Unidade MUL
