@@ -6,21 +6,6 @@
 
 ---
 
-## Índice
-
-1. [Motivação](#motivação)
-2. [Visão Geral da Arquitetura](#visãogeral-da-arquitetura)
-3. [Estrutura de Pastas & Arquivos](#estrutura-de-pastas--arquivos)
-4. [Execução](#execução)
-5. [Configuração (latências)](#configuração-latências)
-6. [Formato das Instruções](#formato-das-instruções)
-7. [Principais Estruturas de Dados](#principais-estruturas-de-dados)
-8. [Ciclo de Clock](#ciclo-de-clock)
-9. [Log de Saída](#log-de-saída)
-10. [Limitações Conhecidas](#limitações-conhecidas)
-
----
-
 ## Motivação
 
 O pipeline superescalar contemporâneo retira paralelismo ao nível de instrução (ILP). Entretanto, **dependências (RAW, WAR, WAW)** e latências variáveis das UFs exigem lógica extra de reordenação. O algoritmo de **Tomasulo** (IBM 360/91, 1967) resolve essas questões via:
@@ -50,12 +35,13 @@ Este simulador didático demonstra esses conceitos numa implementação enxuta e
 * **UF Power**: `ADD/SUB/LI=2`, `MUL=1`, `DIV=1`, `LOAD/STORE=2` (configurável).
 * **RS Tamanho**: ver tabela abaixo.
 
-| UF / RS           | Linhas RS |
-| ----------------- | --------- |
-| Aritmética (ADD…) | 3         |
-| Multiplicação     | 2         |
-| Divisão           | 2         |
-| Load/Store        | 4         |
+| UF / RS           | Linhas RS | Configurável
+| ----------------- | --------- | ----------- |
+| Aritmética (ADD…) | 3         | Sim         |
+| Multiplicação     | 2         | Sim         |
+| Divisão           | 2         | Sim         |
+| Load/Store        | 4         | Sim         |
+
 
 ---
 
@@ -88,14 +74,25 @@ O simulador imprime, ciclo a ciclo, os eventos de *Issue*, *Execute*, *Write‑b
 
 ## Configuração (latências)
 
+o arquivo `config.txt` define as latências das operações e o tamanho das estações de reserva. Se ausente, valores padrão são usados.
+o formato do arquivo deve respeitar espaçamento como exemplo tem o molde abaixo
+
+```text
+config : value
+```
 Exemplo de `config.txt`:
+
 
 ```text
 # Latências em ciclos por instrução (CPI)
 CPI.M : 10   # multiplicação
 CPI.DIV: 20  # divisão
 CPI.AR : 5   # add/sub
-# CPI.LOAD / CPI.STORE podem ser adicionados
+CPI.LOAD_STORE : 5 # load/store
+MUL_BUF_LEN : 2 # tamanho da estação de reserva para multiplicação
+DIV_BUF_LEN : 2 # tamanho da estação de reserva para divisão
+ARITH_BUF_LEN : 3 # tamanho da estação de reserva para operações aritméticas
+LOAD_STORE_BUF_LEN : 4 # tamanho da estação de reserva para load/store
 end
 ```
 
@@ -105,11 +102,32 @@ Ausência do arquivo ⇒ valores **default** (todos `1`, exceto LOAD/STORE=2).
 
 ## Formato das Instruções
 
+O arquivo `instructions.txt` contém o *assembly* a ser executado. Cada linha representa uma instrução, com o seguinte formato:
+
+```text
+<op> <rd>, <rs>, <rt>
+```
+ou para load e store
+
+```text
+<op> <rd>, <offset>(<base>)
+```
+onde:
+* `<op>` é a operação (ex.: `add`, `mul`, `load`, `store`, `halt`).
+* `<rd>` é o registrador de destino (ex.: `r1`).
+* `<rs>` e `<rt>` são os registradores de origem (ex.: `r2`, `r3`).
+* `<offset>(<base>)` é o endereço de memória (ex.: `16(r0)`).
+
+* deve se respeitar o espaçamento de 1 espaço entre os campos 
+
+### Exemplo de Instrução
+
+
 ```asm
 ; Registradores: r0..r31 | Comentários iniciam com '#'
-li   r1,10             ; imediato
-add  r2,r1,r3          ; r2 = r1 + r3
-mul  r4,r2,r2
+li r1,10             ; imediato
+add r2,r1,r3          ; r2 = r1 + r3
+mul r4,r2,r2
 load r5,16(r0)         ; r5 = MEM[r0+16]
 store r5,32(r0)        ; MEM[r0+32] = r5
 halt                   ; encerra emissão
@@ -126,7 +144,7 @@ halt                   ; encerra emissão
 | ------------------- | ---------------------------------------- | ------------------------------ |
 | `InstructionQueue`  | Fila FIFO de *issue*                     | `dispatchHead`, `peek()`       |
 | `ReserveStationRow` | Entrada de RS                            | `op`, `vj/vk`, `qj/qk`, `dest` |
-| `ReserverStation`   | Conjunto de linhas da UF                 | `size`, `busyLen`              |
+| `ReserverStation`   | Conjunto de linhas de buffer da UF       | `size`, `busyLen`              |
 | `ReorderBufferRow`  | Entrada do ROB                           | `state`, `value`, `rs_tag`     |
 | `FunctionalUnit`    | Núcleo de execução + buffers             | arrays de `UFTask`             |
 | `RegisterFile`      | Registradores arquiteturais + renomeação | `value`, `qi`                  |
@@ -145,7 +163,7 @@ Cada iteração do `while` principal equivale a **1 tick**:
 
 1. **Issue** – enquanto houver espaço em RS & ROB, despacha próxima instrução.
 2. **Execute** – varre RS; se operandos prontos & UF livre, inicia execução.
-3. **Write‑back** – ao término, resultado é difundido no *Common Data Bus*.
+3. **Write‑back** – ao término, resultado é difundido no *Common Data Bus* e escrito no ROB.
 4. **Commit** – head do ROB escreve no Register File (ou memória p/ `store`).
 
 Encerramento quando:
@@ -157,22 +175,11 @@ Encerramento quando:
 
 ## Log de Saída
 
-Trecho típico (latências `ADD=1`, `MUL=2`):
+Recomenda-se redirecionar a saída para um arquivo:
 
-```text
->>> CLOCK 0 <<<
-[Issue] Emissao de instrucao de OP = ADD
-[Decode] ADD  rd=r1 rs=r2 rt=r3
-[Issue] RS.tag = 0, ROB.entry = 1
-...
-[UF] Executando op=ADD | vj=10.00 vk=20.00 | restante=0
-[UF] [Broadcast] Finalizou ADD | ROB=1 | Resultado=30.00
-[WriteBack] ROB.entry = 1 | result => 30.00
-[Commit] Registrador 1 atualizado com valor 30.00
+```bash
+./tomasulo_sim > log.txt
 ```
-
-Use esse log para depurar dependências ou *deadlocks* (ver [Limitações](#limitações-conhecidas)).
-
 ---
 
 ## Limitações Conhecidas
