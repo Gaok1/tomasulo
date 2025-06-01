@@ -28,15 +28,15 @@ typedef enum
 
 typedef enum Operation
 {
-    ADD,
-    SUB,
-    DIV,
-    MUL,
-    LI,
-    LOAD,
-    STORE,
-    HALT,
-    NOP,
+    ADD =1,
+    SUB = 2,
+    DIV = 3,
+    MUL = 4,
+    LI = 5,
+    LOAD = 6,
+    STORE = 7,
+    HALT = 8,
+    NOP = 9,
 } Operation;
 
 typedef struct RAM
