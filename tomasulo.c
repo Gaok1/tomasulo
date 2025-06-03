@@ -189,11 +189,6 @@ static inline void PANIC(const char *msg)
     exit(EXIT_FAILURE);
 }
 
-static inline void log_mssg(const char *msg)
-{
-    printf("LOG: %s\n", msg);
-    fflush(stdout);
-}
 
 #define CONFIG_FILE "config.txt"
 #define CPI_DEFAULT 2
@@ -223,8 +218,10 @@ FunctionalUnit *functional_unit;     // UF global
 
 static Config *global_config = NULL;
 
-/* Configuracao */
 
+/// @brief  Retorna a latência de uma operação
+/// @param op  operação a ser verificada
+/// @return  latência da operação em ciclos
 static int config_get_latency(Operation op)
 {
     switch (op)
@@ -247,6 +244,9 @@ static int config_get_latency(Operation op)
     }
 }
 
+/// @brief  Converte uma operação para uma string
+/// @param op 
+/// @return  op.toString()
 static inline const char *op_to_str(Operation op)
 {
     switch (op)
@@ -432,6 +432,10 @@ static bool parse_offset_base(const char *str, int *offset, int *base)
     return false;
 }
 
+/// @brief  Analisa uma linha de instrução e preenche a estrutura `Instruction`
+/// @param line  linha de instrução a ser analisada
+/// @param out  ponteiro para a estrutura `Instruction` onde o resultado será armazenado
+/// @return  `true` se a linha foi analisada com sucesso, `false` caso contrário
 static int parse_instruction_line(const char *line, Instruction *out)
 {
     while (*line == ' ' || *line == '\t')
@@ -624,7 +628,7 @@ static bool register_commit_value(RegisterFile *self, int index, Entry rob_entry
     }
     reg->value = value;
     reg->qi = 0;
-    printf("[Commit] Registrador %d atualizado com valor %f\n", index, value);
+    printf("[Commit] Registrador %d atualizado com valor %.2f\n", index, value);
     return true;
 }
 
@@ -851,7 +855,7 @@ static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
     if (head->inst.op == STORE)
     { // caso especial para commit do store
         ram_store(&global_ram, head->mem_addr, head->value);
-        printf("[Commit][STORE] end=%d valor=%f\n",
+        printf("[Commit][STORE] end=%d valor=%.2f\n",
                head->mem_addr, head->value);
     }
     else if (head->destinationRegister != 0)
@@ -1325,6 +1329,7 @@ typedef enum
     WAIT_STORE,
     FWD_READY
 } StoreHazard;
+
 /**
  * @brief  se existe STORE anterior ao LOAD que acesse o mesmo endereço.
  * @param loadEntry: Entrada do LOAD no Reorder Buffer (ROB).
@@ -1467,7 +1472,7 @@ Broadcast *uf_tick(FunctionalUnit *self)
                 {
                     /* Forwarding imediato: pega o valor de store_cand->value */
                     res = store_cand->value;
-                    printf("[LOAD-FWD] addr=%d  val=%f  via ROB[%d]\n",
+                    printf("[LOAD-FWD] addr=%d  val=%.2f  via ROB[%d]\n",
                            addr, res, store_cand->entry);
 
                     /* Atualiza o próprio ROB do LOAD */
@@ -1479,7 +1484,7 @@ Broadcast *uf_tick(FunctionalUnit *self)
                 {
                     /* NO_DEP: não há STORE anterior → acesso normal à RAM */
                     res = global_ram.load(&global_ram, addr);
-                    printf("[LOAD]   addr=%d  val=%f  (RAM)\n", addr, res);
+                    printf("[LOAD]   addr=%d  val=%.2f  (RAM)\n", addr, res);
 
                     /* Atualiza o próprio ROB do LOAD */
                     ReorderBufferRow *myLoadROB = &reorder_buffer->rows[t->row.ROB_Entry];
@@ -1687,33 +1692,49 @@ void printFunctionalUnit(FunctionalUnit *uf)
     for (int i = 0; i < ARITH_UF_ROWS; i++)
     {
 
-        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->arith_units[i].row.op), uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->arith_units[i].row.op), uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
     }
     printf("\n\n-----MUL Units (%d)-----\n", MUL_UF_ROWS);
     for (int i = 0; i < MUL_UF_ROWS; i++)
     {
 
-        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->mul_units[i].row.op), uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->mul_units[i].row.op), uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
     }
     printf("\n\n-----DIV Units (%d)-----\n", DIV_UF_ROWS);
     for (int i = 0; i < DIV_UF_ROWS; i++)
     {
 
-        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->div_units[i].row.op), uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->div_units[i].row.op), uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
     }
     printf("\n\n-----Load/Store Units (%d)-----\n", LOAD_STORE_UF_ROWS);
     for (int i = 0; i < LOAD_STORE_UF_ROWS; i++)
     {
 
-        printf("UF %2d: %s | vj=%f vk=%f | restante=%d\n", i, op_to_str(uf->load_store_units[i].row.op), uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->load_store_units[i].row.op), uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
     }
 
     printf("\n");
 }
 /* main.c */
 
+void checkEnviorment(void) {
+    FILE *f = fopen("config.txt", "r");
+    if (!f) {
+        PANIC("Arquivo de configuracao nao encontrado. Crie um arquivo config.txt com as configuracoes.");
+    }
+    fclose(f);
+    f = fopen("instructions.txt", "r");
+    if (!f) {
+        PANIC("Arquivo de instrucoes nao encontrado. Crie um arquivo instructions.txt com as instrucoes.");
+    }
+}
+
+
 int main()
 {
+    printf("Recomenda-se Fortemente que a saida seja redirecionada para um arquivo.\n");
+    printf("    Exemplo: ./tomasulo > output.txt\n");
+    checkEnviorment();
     /// Incializacao
     pub_start_config();
     init_ram(1024);
@@ -1906,7 +1927,7 @@ int main()
         for (int i = 0; bd && bd[i].entry; i++)
         {
             {
-                printf("[WriteBack] ROB.entry = %d | result => %f\n", bd[i].entry, bd[i].value);
+                printf("[WriteBack] ROB.entry = %d | result => %.2f\n", bd[i].entry, bd[i].value);
                 // escuta broadcast em todas as RS dedicadas
                 pub_reorder_buffer_listen_broadcast(reorder_buffer, bd + i, functional_unit->arith_rs);
 
@@ -1961,7 +1982,7 @@ int main()
         puts("-----------------------------------------------------------------------------------------------------\n\n");
         
     }
-
+    fprintf(stderr, "[Tomasulo] Simulador finalizado.\n");
     printRegisterFile(register_file);
     puts("");
     print_Instructions_history(instructions, pub_get_instruction_count());
