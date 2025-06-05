@@ -64,6 +64,7 @@ typedef struct Instruction
     int execution[2];
     int writeResult; // usado para controle de write result
     int commit;
+    char * str;
 } Instruction;
 
 typedef struct ReserveStationRow
@@ -219,9 +220,9 @@ FunctionalUnit *functional_unit;     // UF global
 static Config *global_config = NULL;
 
 
-/// @brief  Retorna a latência de uma operação
-/// @param op  operação a ser verificada
-/// @return  latência da operação em ciclos
+/// @brief  Retorna a latência de uma operacao
+/// @param op  operacao a ser verificada
+/// @return  latência da operacao em ciclos
 static int config_get_latency(Operation op)
 {
     switch (op)
@@ -234,7 +235,7 @@ static int config_get_latency(Operation op)
     case DIV:
         return global_config->div_cpi;
     case LI:
-        return global_config->add_cpi; // LI é como um ADD
+        return global_config->add_cpi; // LI e como um ADD
     case LOAD:
     case STORE:
         return global_config->load_store_cpi;
@@ -244,7 +245,7 @@ static int config_get_latency(Operation op)
     }
 }
 
-/// @brief  Converte uma operação para uma string
+/// @brief  Converte uma operacao para uma string
 /// @param op 
 /// @return  op.toString()
 static inline const char *op_to_str(Operation op)
@@ -380,7 +381,7 @@ void pub_start_config()
         printf("  %-20s = %d\n", "ARITH_RS_ROWS", ARITH_RS_ROWS);
         printf("  %-20s = %d\n", "LOAD_STORE_RS_ROWS", LOAD_STORE_RS_ROWS);
         printf("  %-20s = %d\n", "REGISTERS_LEN", REGISTERS_LEN);
-        printf("[CONFIG] Configurações carregadas com sucesso com %d erros\n\n", errors);
+        printf("[CONFIG] Configuracões carregadas com sucesso com %d erros\n\n", errors);
     }
 
     global_config = cfg;
@@ -432,10 +433,10 @@ static bool parse_offset_base(const char *str, int *offset, int *base)
     return false;
 }
 
-/// @brief  Analisa uma linha de instrução e preenche a estrutura `Instruction`
-/// @param line  linha de instrução a ser analisada
-/// @param out  ponteiro para a estrutura `Instruction` onde o resultado será armazenado
-/// @return  `true` se a linha foi analisada com sucesso, `false` caso contrário
+/// @brief  Analisa uma linha de instrucao e preenche a estrutura `Instruction`
+/// @param line  linha de instrucao a ser analisada
+/// @param out  ponteiro para a estrutura `Instruction` onde o resultado sera armazenado
+/// @return  `true` se a linha foi analisada com sucesso, `false` caso contrario
 static int parse_instruction_line(const char *line, Instruction *out)
 {
     while (*line == ' ' || *line == '\t')
@@ -522,13 +523,13 @@ static int parse_instruction_line(const char *line, Instruction *out)
     }
     else
     {
-        fprintf(stderr, "[Error] Instrucao invalida: %s\n Tente remover espaços entre os operandos\n", line);
+        fprintf(stderr, "[Error] Instrucao invalida: %s\n Tente remover espacos entre os operandos\n", line);
         return 0;
     }
 
     if (ins.regs[0] == 0 && ins.op != STORE && ins.op != HALT && ins.op != NOP)
     {
-        fprintf(stderr, "[Error] Registrador destino nao pode ser r0 para instrução %s \n", line);
+        fprintf(stderr, "[Error] Registrador destino nao pode ser r0 para instrucao %s \n", line);
         return 0;
     }
 
@@ -546,7 +547,7 @@ static int parse_instruction_line(const char *line, Instruction *out)
             printf("[Decode] %-4s rd=r%d rs=r%d rt=r%d\n",
                    op_name, ins.regs[0], ins.regs[1], ins.regs[2]);
     }
-
+    ins.str = strdup(line);
     *out = ins;
     return 1;
 }
@@ -834,7 +835,7 @@ static bool pub_reorder_buffer_is_full(ReorderBuffer *rob)
 /// @brief  Tenta commitar a primeira linha do reorder buffer
 /// @param rob  referência para o reorder buffer
 /// @param regFile  referência para o Register File
-/// @param instructions  referência para o array de instruções
+/// @param instructions  referência para o array de instrucões
 static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
                                           RegisterFile *regFile,
                                           Instruction *instructions)
@@ -848,9 +849,9 @@ static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
 
     int id = head->inst.id;
 
-    /* ─── 1. garante o espaçamento de um ciclo entre WR e Commit ─── */
+    /* ─── 1. garante o espacamento de um ciclo entre WR e Commit ─── */
     if (GLOBAL_CLOCK <= instructions[id].writeResult)
-        return false; // Ainda não pode commitar
+        return false; // Ainda nao pode commitar
 
     if (head->inst.op == STORE)
     { // caso especial para commit do store
@@ -868,7 +869,7 @@ static bool pub_reorder_buffer_try_commit(ReorderBuffer *rob,
 
     instructions[id].commit = GLOBAL_CLOCK;
 
-    /* limpa a linha e avança o ponteiro */
+    /* limpa a linha e avanca o ponteiro */
     head->busy = false;
     head->state = ROB_COMMIT;
     rob->head = (rob->head % rob->size) + 1;
@@ -911,15 +912,15 @@ static inline void handle_immediate(const Instruction *inst,
 }
 
 /**
- * @brief  Insere uma instrução na estação de reserva apropriada.
+ * @brief  Insere uma instrucao na estacao de reserva apropriada.
  *
- * @param  self       Ponteiro para a estação de reserva (ReserverStation).
- * @param  instruction  Instrução a ser adicionada.
+ * @param  self       Ponteiro para a estacao de reserva (ReserverStation).
+ * @param  instruction  Instrucao a ser adicionada.
  * @param  regFile    Ponteiro para o arquivo de registradores (RegisterFile).
  * @param  rob        Ponteiro para o Reorder Buffer (ReorderBuffer).
  * @param  robEntry   Identificador da entrada correspondente no ROB.
  *
- * @return Índice da linha utilizada dentro da estação de reserva.
+ * @return Índice da linha utilizada dentro da estacao de reserva.
  */
 static int pub_reserve_station_add_instruction(ReserverStation *self,
                                                Instruction instruction,
@@ -927,7 +928,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
                                                ReorderBuffer *rob,
                                                Entry robEntry)
 {
-    /* Busca por uma linha livre na estação de reserva */
+    /* Busca por uma linha livre na estacao de reserva */
     int freeSlot = self->size;
     for (int i = 0; i < self->size; ++i)
     {
@@ -941,21 +942,21 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
     if (freeSlot == self->size)
     {
         /* Nenhuma linha livre disponível */
-        PANIC("ReserveStation sem espaço");
+        PANIC("ReserveStation sem espaco");
     }
 
     /* Ponteiro para a linha escolhida */
     ReserveStationRow *rsRow = &self->rows[freeSlot];
     rsRow->busy = true;          // marca a linha como ocupada
-    rsRow->op = instruction.op;  // operação da instrução (ADD, SUB, LOAD, etc.)
+    rsRow->op = instruction.op;  // operacao da instrucao (ADD, SUB, LOAD, etc.)
     rsRow->ROB_Entry = robEntry; // índice da entrada no Reorder Buffer
 
     switch (instruction.op)
     {
     case LI:
         rsRow->vj = instruction.regs[1]; // imediato
-        rsRow->qj = 0;                   // não depende de ROB
-        rsRow->vk = 0;                   // não utiliza vk/qk
+        rsRow->qj = 0;                   // nao depende de ROB
+        rsRow->vk = 0;                   // nao utiliza vk/qk
         rsRow->qk = 0;
         break;
 
@@ -963,7 +964,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
     {
         /*
          * LOAD rd, offset(base)
-         * Calcula endereço efetivo: base + offset.
+         * Calcula endereco efetivo: base + offset.
          * tratar dependência de 'base' para obter vj/qj.
          */
         int baseReg = instruction.regs[1];
@@ -971,31 +972,31 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
 
         if (baseStatus->qi == 0)
         {
-            // O registrador base já contém valor válido
+            // O registrador base ja contem valor valido
             rsRow->vj = baseStatus->value;
             rsRow->qj = 0;
         }
         else
         {
-            // Há uma dependência: a instrução produtora está no ROB
+            // Ha uma dependência: a instrucao produtora esta no ROB
             Entry producerEntry = baseStatus->qi;
             ReorderBufferRow *producerRow = &rob->rows[producerEntry];
 
             if (producerRow->busy && producerRow->state == ROB_WRITE_RESULT)
             {
-                // O produtor já gravou o resultado: faz forwarding imediato
+                // O produtor ja gravou o resultado: faz forwarding imediato
                 rsRow->vj = producerRow->value;
                 rsRow->qj = 0;
             }
             else
             {
-                // Enquanto não houver resultado, registra tag para aguardar broadcast
+                // Enquanto nao houver resultado, registra tag para aguardar broadcast
                 rsRow->qj = producerEntry;
             }
         }
 
         rsRow->A = instruction.regs[2]; // offset imediato
-        rsRow->vk = 0;                  // não utiliza vk/qk para LOAD
+        rsRow->vk = 0;                  // nao utiliza vk/qk para LOAD
         rsRow->qk = 0;
     }
     break;
@@ -1005,24 +1006,24 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
         /*
          * STORE src, offset(base)
          * tratar:
-         *  - registrador base (para obter endereço: vk/qk)
+         *  - registrador base (para obter endereco: vk/qk)
          *  - registrador fonte (valor a ser armazenado: vj/qj)
          */
         int baseReg = instruction.regs[1];
         int srcReg = instruction.regs[0];
         int offset = instruction.regs[2];
 
-        /*--- Tratamento do registrador base (endereço) ---*/
+        /*--- Tratamento do registrador base (endereco) ---*/
         RegisterStatus *baseStatus = regFile->get(regFile, baseReg);
         if (baseStatus->qi == 0)
         {
-            // Base já contém valor válido
+            // Base ja contem valor valido
             rsRow->vk = baseStatus->value;
             rsRow->qk = 0;
         }
         else
         {
-            // Dependência: produtor está no ROB
+            // Dependência: produtor esta no ROB
             rsRow->qk = baseStatus->qi;
         }
 
@@ -1030,7 +1031,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
         RegisterStatus *srcStatus = regFile->get(regFile, srcReg);
         if (srcStatus->qi == 0)
         {
-            // Valor fonte já disponível
+            // Valor fonte ja disponível
             rsRow->vj = srcStatus->value;
             rsRow->qj = 0;
         }
@@ -1042,13 +1043,13 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
 
             if (producerRow->busy && producerRow->state == ROB_WRITE_RESULT)
             {
-                // Produtor já escreveu resultado: forwarding imediato
+                // Produtor ja escreveu resultado: forwarding imediato
                 rsRow->vj = producerRow->value;
                 rsRow->qj = 0;
             }
             else
             {
-                // Ainda não chegou o resultado: guarda tag
+                // Ainda nao chegou o resultado: guarda tag
                 rsRow->qj = producerEntry;
             }
         }
@@ -1060,7 +1061,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
     default:
     {
         /*
-         * Operações aritméticas (ADD, SUB, MUL, DIV, etc.):
+         * Operacões aritmeticas (ADD, SUB, MUL, DIV, etc.):
          * tratar dois operandos:
          *  - registrador rs → vj/qj
          *  - registrador rt → vk/qk
@@ -1072,7 +1073,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
         RegisterStatus *rsStatus = regFile->get(regFile, regRs);
         if (rsStatus->qi == 0)
         {
-            // Já possui valor válido
+            // Ja possui valor valido
             rsRow->vj = rsStatus->value;
             rsRow->qj = 0;
         }
@@ -1099,7 +1100,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
         RegisterStatus *rtStatus = regFile->get(regFile, regRt);
         if (rtStatus->qi == 0)
         {
-            // Já possui valor válido
+            // Ja possui valor valido
             rsRow->vk = rtStatus->value;
             rsRow->qk = 0;
         }
@@ -1125,7 +1126,7 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
     break;
     }
 
-    /* Se não for STORE, atualiza a tag QI do registrador destino (rd) */
+    /* Se nao for STORE, atualiza a tag QI do registrador destino (rd) */
     if (instruction.op != STORE)
     {
         regFile->set_rob_entry(regFile,
@@ -1133,14 +1134,15 @@ static int pub_reserve_station_add_instruction(ReserverStation *self,
                                robEntry);
     }
 
-    self->busyLen++; // incrementa contagem de estações ocupadas
+    self->busyLen++; // incrementa contagem de estacões ocupadas
     return freeSlot;
 }
 
 /// @brief  Atualiza o valor dos operandos da linha da estacao de reserva
 /// @param self  ponteiro para a estacao de reserva
 /// @param bd  broadcast
-static void pub_reserve_station_listen_broadcast(ReserverStation *self, Broadcast *bd)
+/// @param operationName  nome da operacao que esta sendo atualizada
+static void pub_reserve_station_listen_broadcast(ReserverStation *self, Broadcast *bd, char * operationName)
 {
     for (int i = 0; i < self->size; i++)
     {
@@ -1149,11 +1151,13 @@ static void pub_reserve_station_listen_broadcast(ReserverStation *self, Broadcas
         {
             if (row->qj == bd->entry)
             {
+                printf("[RS-%s] Atualizando vj de row %d com broadcast %d\n", operationName,i, bd->entry);
                 row->vj = bd->value;
                 row->qj = 0;
             }
             if (row->qk == bd->entry)
             {
+                printf("[RS-%s] Atualizando vk de row %d com broadcast %d\n", operationName,i, bd->entry);
                 row->vk = bd->value;
                 row->qk = 0;
             }
@@ -1331,15 +1335,15 @@ typedef enum
 } StoreHazard;
 
 /**
- * @brief  se existe STORE anterior ao LOAD que acesse o mesmo endereço.
+ * @brief  se existe STORE anterior ao LOAD que acesse o mesmo endereco.
  * @param loadEntry: Entrada do LOAD no Reorder Buffer (ROB).
- * @param addr: Endereço de memória do LOAD.
+ * @param addr: Endereco de memória do LOAD.
  * @param rob_out: Ponteiro opcional para armazenar a linha do ROB que causou o hazard.
  * @return:
  *   NO_DEP        → Nenhum store antes; LOAD pode prosseguir à RAM.
- *   WAIT_STORE    → Há store antes, mas ainda incompleto  → stall.
- *   FWD_READY     → Store antes, pronto, mesmo endereço   → fazer forward.
- *                   O ponteiro para a linha do ROB é devolvido em *rob_out.
+ *   WAIT_STORE    → Ha store antes, mas ainda incompleto  → stall.
+ *   FWD_READY     → Store antes, pronto, mesmo endereco   → fazer forward.
+ *                   O ponteiro para a linha do ROB e devolvido em *rob_out.
  */
 StoreHazard check_store_hazard(Entry loadEntry,
                                int addr,
@@ -1352,36 +1356,36 @@ StoreHazard check_store_hazard(Entry loadEntry,
     ReorderBufferRow *lastReadyStore = NULL;
     int foundPendingStore = 0;
 
-    /* 1) Percorre circularmente do head até “loadEntry” (exclusive). */
+    /* 1) Percorre circularmente do head ate “loadEntry” (exclusive). */
     while (e != final)
     {
         ReorderBufferRow *r = &rob->rows[e];
 
         if (r->busy && r->inst.op == STORE) {
-            /* Se ainda não calculou endereço, devemos stall imediatamente */
+            /* Se ainda nao calculou endereco, devemos stall imediatamente */
             if (r->mem_addr == -1) {
-                // Existe um STORE anterior cujo endereço ainda não está pronto:
+                // Existe um STORE anterior cujo endereco ainda nao esta pronto:
                 // O LOAD deve aguardar.
-                printf("[LS_Colision] LOAD[%d] addr=%d  (WAIT_STORE) via ROB[%d]\n",
+                printf("[LOAD-STORE-Colision] LOAD[%d] addr=%d  (WAIT_STORE) via ROB[%d]\n",
                        loadEntry, addr, r->entry);
                 return WAIT_STORE;
             }
-            /* Se o endereço bate com addr do LOAD, registramos como candidato */
+            /* Se o endereco bate com addr do LOAD, registramos como candidato */
             if (r->mem_addr == addr) {
-                /* Se esse STORE já está em WRITE_RESULT ou COMMIT, anota como “último pronto” */
+                /* Se esse STORE ja esta em WRITE_RESULT ou COMMIT, anota como “último pronto” */
                 if (r->state == ROB_WRITE_RESULT || r->state == ROB_COMMIT) {
                     lastReadyStore = r;
-                    printf("[LS_Colision] LOAD[%d] addr=%d  (FWD_READY) via ROB[%d]\n",
+                    printf("[LOAD-STORE-Colision] LOAD[%d] addr=%d  (FWD_READY) via ROB[%d]\n",
                            loadEntry, addr, r->entry);
-                    /* mas não podemos retornar ainda: um STORE mais à frente pode sobrescrever */
+                    /* mas nao podemos retornar ainda: um STORE mais à frente pode sobrescrever */
                 } else {
-                    printf("[LS_Colision] LOAD[%d] addr=%d  (WAIT_STORE) via ROB[%d]\n",
+                    printf("[LOAD-STORE-Colision] LOAD[%d] addr=%d  (WAIT_STORE) via ROB[%d]\n",
                            loadEntry, addr, r->entry);
                     return WAIT_STORE;
                 }
             }
         }
-        /* Avança para a próxima posição no anel [1 .. rob->size] */
+        /* Avanca para a próxima posicao no anel [1 .. rob->size] */
         e = (e == rob->size ? 1 : e + 1);
     }
 
@@ -1391,7 +1395,7 @@ StoreHazard check_store_hazard(Entry loadEntry,
             *rob_out = lastReadyStore;
         return FWD_READY;
     }
-    /* 3) Caso não exista STORE anterior para esse addr, não há dependência */
+    /* 3) Caso nao exista STORE anterior para esse addr, nao ha dependência */
     return NO_DEP;
 }
 
@@ -1441,38 +1445,43 @@ Broadcast *uf_tick(FunctionalUnit *self)
             {
             case ADD:
                 res = t->row.vj + t->row.vk;
+                printf("[UF] [ADD] vj=%.2f vk=%.2f\n", t->row.vj, t->row.vk);
                 break;
             case SUB:
                 res = t->row.vj - t->row.vk;
+                printf("[UF] [SUB] vj=%.2f vk=%.2f\n", t->row.vj, t->row.vk);
                 break;
             case MUL:
                 res = t->row.vj * t->row.vk;
+                printf("[UF] [MUL] vj=%.2f vk=%.2f\n", t->row.vj, t->row.vk);
                 break;
             case DIV:
                 res = (t->row.vk != 0.0) ? t->row.vj / t->row.vk : 0.0;
+                printf("[UF] [DIV] vj=%.2f vk=%.2f\n", t->row.vj, t->row.vk);
                 break;
             case LI:
                 res = t->row.vj;
+                printf("[UF] [LI] vj=%.2f\n", t->row.vj);
                 break;
             case LOAD:
             {
-                /* 1) Calcula endereço efetivo */
+                /* 1) Calcula endereco efetivo */
                 int addr = (int)(t->row.vj + t->row.A);
                 ReorderBufferRow *store_cand = NULL;
                 StoreHazard sh = check_store_hazard(t->row.ROB_Entry, addr, &store_cand);
 
                 if (sh == WAIT_STORE)
                 {
-                    printf("[LOAD] addr=%d  (WAIT_STORE) via ROB[%d]\n",
+                    printf("[UF-LOAD] addr=%d  (WAIT_STORE) via ROB[%d]\n",
                            addr, t->row.ROB_Entry);
-                    /* Stall: não libera a unidade, nem faz broadcast */
+                    /* Stall: nao libera a unidade, nem faz broadcast */
                     continue;
                 }
                 else if (sh == FWD_READY)
                 {
                     /* Forwarding imediato: pega o valor de store_cand->value */
                     res = store_cand->value;
-                    printf("[LOAD-FWD] addr=%d  val=%.2f  via ROB[%d]\n",
+                    printf("[UF-LOAD-FWD] addr=%d  val=%.2f  via ROB[%d]\n",
                            addr, res, store_cand->entry);
 
                     /* Atualiza o próprio ROB do LOAD */
@@ -1482,9 +1491,9 @@ Broadcast *uf_tick(FunctionalUnit *self)
                 }
                 else
                 {
-                    /* NO_DEP: não há STORE anterior → acesso normal à RAM */
+                    /* NO_DEP: nao ha STORE anterior → acesso normal à RAM */
                     res = global_ram.load(&global_ram, addr);
-                    printf("[LOAD]   addr=%d  val=%.2f  (RAM)\n", addr, res);
+                    printf("[UF-LOAD]   addr=%d  val=%.2f  (RAM)\n", addr, res);
 
                     /* Atualiza o próprio ROB do LOAD */
                     ReorderBufferRow *myLoadROB = &reorder_buffer->rows[t->row.ROB_Entry];
@@ -1511,19 +1520,19 @@ Broadcast *uf_tick(FunctionalUnit *self)
                 /* Estado do ROB do STORE deve mudar para WRITE_RESULT */
                 storeROB->state = ROB_WRITE_RESULT;
 
-                /* broadcast “dummy” (o valor não interessa tanto,
+                /* broadcast “dummy” (o valor nao interessa tanto,
                  *  mas libera filas de espera que chequem mem_addr) */
                 bd_out[len].entry = t->row.ROB_Entry;
                 bd_out[len].value = t->row.vj; 
                 len++;
                 t->active = false;
+                printf("[UF-STORE] addr=%d  val=%.2f  (RAM)\n", addr, t->row.vj);
                 continue;
                 break;
             }
             default:
                 break;
             }
-
             bd_out[len].entry = t->row.ROB_Entry;
             bd_out[len].value = res;
             t->active = false;
@@ -1687,30 +1696,31 @@ void printReserveStation(ReserverStation *rs, const char *name)
 
 void printFunctionalUnit(FunctionalUnit *uf)
 {
+    
     printf("[FunctionalUnit PRINT]  --------\n");
     printf("\n-----Arithmetic Units (%d)-----\n", ARITH_UF_ROWS);
     for (int i = 0; i < ARITH_UF_ROWS; i++)
     {
-
-        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->arith_units[i].row.op), uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
+        const char *op_str = uf->arith_units[i].active ? op_to_str(uf->arith_units[i].row.op) : "IDLE";
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_str, uf->arith_units[i].row.vj, uf->arith_units[i].row.vk, uf->arith_units[i].remaining);
     }
     printf("\n\n-----MUL Units (%d)-----\n", MUL_UF_ROWS);
     for (int i = 0; i < MUL_UF_ROWS; i++)
     {
-
-        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->mul_units[i].row.op), uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
+        const char *op_str = uf->mul_units[i].active ? op_to_str(uf->mul_units[i].row.op) : "IDLE";
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_str, uf->mul_units[i].row.vj, uf->mul_units[i].row.vk, uf->mul_units[i].remaining);
     }
     printf("\n\n-----DIV Units (%d)-----\n", DIV_UF_ROWS);
     for (int i = 0; i < DIV_UF_ROWS; i++)
     {
-
-        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->div_units[i].row.op), uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
+        const char *op_str = uf->div_units[i].active ? op_to_str(uf->div_units[i].row.op) : "IDLE";
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_str, uf->div_units[i].row.vj, uf->div_units[i].row.vk, uf->div_units[i].remaining);
     }
     printf("\n\n-----Load/Store Units (%d)-----\n", LOAD_STORE_UF_ROWS);
     for (int i = 0; i < LOAD_STORE_UF_ROWS; i++)
     {
-
-        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_to_str(uf->load_store_units[i].row.op), uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
+        const char *op_str = uf->load_store_units[i].active ? op_to_str(uf->load_store_units[i].row.op) : "IDLE";
+        printf("UF %2d: %s | vj=%.2f vk=%.2f | restante=%d\n", i, op_str, uf->load_store_units[i].row.vj, uf->load_store_units[i].row.vk, uf->load_store_units[i].remaining);
     }
 
     printf("\n");
@@ -1738,6 +1748,7 @@ int main()
     /// Incializacao
     pub_start_config();
     init_ram(1024);
+
     register_file = pub_create_register_file(REGISTERS_LEN);
     reorder_buffer = pub_create_reorder_buffer(REORDER_BUFFER_LEN);
     functional_unit = pub_create_functional_unit();
@@ -1762,7 +1773,7 @@ int main()
         // EXECUTE - Unidade Aritmetica (ADD, SUB, LI)
 
         for (int i = 0; i < ARITH_UF_ROWS; i++)
-        { // para toda unidade funcional aritmética
+        { // para toda unidade funcional aritmetica
             UFTask *task = &functional_unit->arith_units[i];
             if (task->active) // se a unidade nao estiver ocupada
             {
@@ -1779,9 +1790,9 @@ int main()
                     {
                         // adiciona
                         reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
-                        printf("[Execute] Enviado ROB.RobEntry = %d\n", ready[j]->ROB_Entry);
-                        int inst_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
-                        instructions[inst_id].execution[0] = GLOBAL_CLOCK;
+                        printf("[Execute] Enviado Issue para execucao do ROB [%d]\n", ready[j]->ROB_Entry);
+                        int instruction_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
+                        instructions[instruction_id].execution[0] = GLOBAL_CLOCK;
                         pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                         break;                                  // só dispara 1 por ciclo por unidade
                     }
@@ -1808,8 +1819,8 @@ int main()
                             reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
                             printf("[Execute] Enviado ROB.Entry = %d\n", ready[j]->ROB_Entry);
                             // marca time stamp de inicio de execucao
-                            int inst_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
-                            instructions[inst_id].execution[0] = GLOBAL_CLOCK;
+                            int instruction_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
+                            instructions[instruction_id].execution[0] = GLOBAL_CLOCK;
                             pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                             break;
                         }
@@ -1837,8 +1848,8 @@ int main()
                         {
                             reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
                             printf("[Execute] Enviado ROB.Entry = %d\n", ready[j]->ROB_Entry);
-                            int inst_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
-                            instructions[inst_id].execution[0] = GLOBAL_CLOCK;
+                            int instruction_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
+                            instructions[instruction_id].execution[0] = GLOBAL_CLOCK;
                             pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                             break;
                         }
@@ -1866,8 +1877,8 @@ int main()
                         {
                             reorder_buffer->rows[ready[j]->ROB_Entry].state = ROB_EXECUTE;
                             printf("[Execute] Enviado ROB.Entry = %d\n", ready[j]->ROB_Entry);
-                            int inst_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
-                            instructions[inst_id].execution[0] = GLOBAL_CLOCK;
+                            int instruction_id = reorder_buffer->rows[ready[j]->ROB_Entry].inst.id;
+                            instructions[instruction_id].execution[0] = GLOBAL_CLOCK;
                             pub_reserve_station_free(rs, ready[j]); // <---- remover da RS
                             break;
                         }
@@ -1909,7 +1920,7 @@ int main()
                 // Se nao houver espaco na RS, nao emite a instrucao,
             }
 
-            printf("[Issue] Emissao de instrucao de OP = %s\n", op_to_str(inst->op));
+            printf("[Issue] Emissao de instrucao  %s ", inst->str);
             inst = instruction_queue->dispatch(instruction_queue);
             if (inst)
             {
@@ -1917,7 +1928,7 @@ int main()
                 int rs_tag = pub_reserve_station_add_instruction(rs, *inst, register_file, reorder_buffer, entry);
                 reorder_buffer->rows[entry].rs_tag = rs_tag;
                 inst->issued = GLOBAL_CLOCK; // marca o ciclo de emissao
-                printf("[Issue] RS.tag = %d, ROB.entry = %d\n", rs_tag, entry);
+                printf("[Issue] tag de Reserve station = %d, entrada do ROB = %d\n", rs_tag, entry);
             }
         }
 
@@ -1927,15 +1938,14 @@ int main()
         for (int i = 0; bd && bd[i].entry; i++)
         {
             {
-                printf("[WriteBack] ROB.entry = %d | result => %.2f\n", bd[i].entry, bd[i].value);
+                printf("[WriteBack] escrevendo resultado [%d] em ROB [%d] : ", bd[i].value,  bd[i].entry);
                 // escuta broadcast em todas as RS dedicadas
                 pub_reorder_buffer_listen_broadcast(reorder_buffer, bd + i, functional_unit->arith_rs);
 
-                pub_reserve_station_listen_broadcast(functional_unit->arith_rs, bd + i); //&bd[i] -> bd + i
-                pub_reserve_station_listen_broadcast(functional_unit->mul_rs, bd + i);
-                pub_reserve_station_listen_broadcast(functional_unit->div_rs, bd + i);
-                pub_reserve_station_listen_broadcast(functional_unit->load_store_rs, bd + i);
-
+                pub_reserve_station_listen_broadcast(functional_unit->arith_rs, bd + i,"ARITH" ); //&bd[i] -> bd + i
+                pub_reserve_station_listen_broadcast(functional_unit->mul_rs, bd + i,"MUL" );
+                pub_reserve_station_listen_broadcast(functional_unit->div_rs, bd + i,"DIV" );
+                pub_reserve_station_listen_broadcast(functional_unit->load_store_rs, bd + i, "LOAD-STORE");
                 // timestamp
                 int inst_id = reorder_buffer->rows[bd[i].entry].inst.id;
                 instructions[inst_id].execution[1] = GLOBAL_CLOCK - 1; // marca o ciclo de writeback
@@ -1947,7 +1957,7 @@ int main()
         if (pub_reorder_buffer_try_commit(reorder_buffer, register_file, instructions))
         {
             int e = reorder_buffer->head == 1 ? reorder_buffer->size : reorder_buffer->head - 1;
-            printf("[Commit] in ROB entry =  %d\n", e);
+            printf("[Commit] do ROB [%d]\n", e);
         }
 
         if (halt_received &&
